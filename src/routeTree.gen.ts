@@ -13,6 +13,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppSaudasRouteImport } from './routes/_app.saudas'
 import { Route as AppItemsRouteImport } from './routes/_app.items'
+import { Route as AppHistoryRouteImport } from './routes/_app.history'
 import { Route as AppBillsRouteImport } from './routes/_app.bills'
 
 const AppRoute = AppRouteImport.update({
@@ -34,6 +35,11 @@ const AppItemsRoute = AppItemsRouteImport.update({
   path: '/items',
   getParentRoute: () => AppRoute,
 } as any)
+const AppHistoryRoute = AppHistoryRouteImport.update({
+  id: '/history',
+  path: '/history',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppBillsRoute = AppBillsRouteImport.update({
   id: '/bills',
   path: '/bills',
@@ -43,11 +49,13 @@ const AppBillsRoute = AppBillsRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/bills': typeof AppBillsRoute
+  '/history': typeof AppHistoryRoute
   '/items': typeof AppItemsRoute
   '/saudas': typeof AppSaudasRoute
 }
 export interface FileRoutesByTo {
   '/bills': typeof AppBillsRoute
+  '/history': typeof AppHistoryRoute
   '/items': typeof AppItemsRoute
   '/saudas': typeof AppSaudasRoute
   '/': typeof AppIndexRoute
@@ -56,19 +64,21 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/_app/bills': typeof AppBillsRoute
+  '/_app/history': typeof AppHistoryRoute
   '/_app/items': typeof AppItemsRoute
   '/_app/saudas': typeof AppSaudasRoute
   '/_app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/bills' | '/items' | '/saudas'
+  fullPaths: '/' | '/bills' | '/history' | '/items' | '/saudas'
   fileRoutesByTo: FileRoutesByTo
-  to: '/bills' | '/items' | '/saudas' | '/'
+  to: '/bills' | '/history' | '/items' | '/saudas' | '/'
   id:
     | '__root__'
     | '/_app'
     | '/_app/bills'
+    | '/_app/history'
     | '/_app/items'
     | '/_app/saudas'
     | '/_app/'
@@ -108,6 +118,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppItemsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/history': {
+      id: '/_app/history'
+      path: '/history'
+      fullPath: '/history'
+      preLoaderRoute: typeof AppHistoryRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/bills': {
       id: '/_app/bills'
       path: '/bills'
@@ -120,6 +137,7 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppBillsRoute: typeof AppBillsRoute
+  AppHistoryRoute: typeof AppHistoryRoute
   AppItemsRoute: typeof AppItemsRoute
   AppSaudasRoute: typeof AppSaudasRoute
   AppIndexRoute: typeof AppIndexRoute
@@ -127,6 +145,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppBillsRoute: AppBillsRoute,
+  AppHistoryRoute: AppHistoryRoute,
   AppItemsRoute: AppItemsRoute,
   AppSaudasRoute: AppSaudasRoute,
   AppIndexRoute: AppIndexRoute,
