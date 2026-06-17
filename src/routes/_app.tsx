@@ -10,6 +10,7 @@ const tabs = [
   { to: "/items", label: "Items" },
   { to: "/bills", label: "Bills" },
   { to: "/saudas", label: "Saudas" },
+  { to: "/history", label: "History" },
 ];
 
 function AppLayout() {
