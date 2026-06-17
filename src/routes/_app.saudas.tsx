@@ -144,40 +144,90 @@ function SaudasPage() {
         </CardContent>
       </Card>
 
+      <SaudasByCategory data={saudas.data ?? []} onChanged={() => qc.invalidateQueries({ queryKey: ["saudas"] })} />
+    </div>
+  );
+}
+
+function SaudasByCategory({ data, onChanged }: { data: any[]; onChanged: () => void }) {
+  const del = useMutation({
+    mutationFn: async (id: string) => {
+      await supabase.from("sauda_items").delete().eq("sauda_id", id);
+      const { error } = await supabase.from("saudas").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => { toast.success("Sauda deleted"); onChanged(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const grouped = new Map<string, any[]>();
+  for (const s of data) {
+    const key = s.factories?.name ?? "Uncategorised";
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push(s);
+  }
+  const groups = [...grouped.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+
+  if (!data.length) {
+    return (
       <Card>
         <CardHeader><CardTitle>Recent Saudas</CardTitle></CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b text-left">
-              <tr>
-                <th className="p-2">Date</th>
-                <th className="p-2">Party</th>
-                <th className="p-2">Factory</th>
-                <th className="p-2 text-right">Basic</th>
-                <th className="p-2">Items</th>
-                <th className="p-2">Linked Bill</th>
-              </tr>
-            </thead>
-            <tbody>
-              {saudas.data?.map((s: any) => (
-                <tr key={s.id} className="border-b">
-                  <td className="p-2">{s.sauda_date}</td>
-                  <td className="p-2 font-medium">{s.party_name}</td>
-                  <td className="p-2">{s.factories?.name ?? "—"}</td>
-                  <td className="p-2 text-right font-mono">{s.sauda_basic}</td>
-                  <td className="p-2">{s.sauda_items?.length ?? 0}</td>
-                  <td className="p-2">
-                    {s.bills ? <Badge variant="outline">{s.bills.bill_no ?? s.bills.vendor}</Badge> : "—"}
-                  </td>
-                </tr>
-              ))}
-              {!saudas.data?.length && (
-                <tr><td colSpan={6} className="p-6 text-center text-muted-foreground">No saudas yet.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </CardContent>
+        <CardContent className="p-6 text-center text-muted-foreground">No saudas yet.</CardContent>
       </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {groups.map(([cat, rows]) => (
+        <Card key={cat}>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <span>{cat}</span>
+              <Badge variant="secondary">{rows.length}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-b text-left text-muted-foreground">
+                <tr>
+                  <th className="p-2">Date</th>
+                  <th className="p-2">Party</th>
+                  <th className="p-2 text-right">Basic</th>
+                  <th className="p-2">Items</th>
+                  <th className="p-2">Linked Bill</th>
+                  <th className="p-2 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((s: any) => (
+                  <tr key={s.id} className="border-b last:border-0">
+                    <td className="p-2 whitespace-nowrap">{s.sauda_date}</td>
+                    <td className="p-2 font-medium">{s.party_name}</td>
+                    <td className="p-2 text-right font-mono">{s.sauda_basic}</td>
+                    <td className="p-2">{s.sauda_items?.length ?? 0}</td>
+                    <td className="p-2">
+                      {s.bills ? <Badge variant="outline">{s.bills.bill_no ?? s.bills.vendor}</Badge> : "—"}
+                    </td>
+                    <td className="p-2 text-right">
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        disabled={del.isPending}
+                        onClick={() => {
+                          if (confirm(`Delete sauda for ${s.party_name}?`)) del.mutate(s.id);
+                        }}
+                      >
+                        Delete
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 }
