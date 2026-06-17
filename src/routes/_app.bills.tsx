@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
-import { fetchBills, fetchItems } from "@/lib/queries";
+import { fetchBills, fetchItems, fetchSaudas } from "@/lib/queries";
 import { supabase } from "@/integrations/supabase/client";
 import { extractBillFromImage, type ExtractedBill } from "@/lib/ai.functions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +33,7 @@ function BillsPage() {
   const qc = useQueryClient();
   const bills = useQuery({ queryKey: ["bills"], queryFn: fetchBills });
   const items = useQuery({ queryKey: ["items"], queryFn: fetchItems });
+  const saudas = useQuery({ queryKey: ["saudas"], queryFn: fetchSaudas });
   const extract = useServerFn(extractBillFromImage);
 
   const [type, setType] = useState<"purchase" | "sale">("purchase");
@@ -40,6 +41,7 @@ function BillsPage() {
   const [draft, setDraft] = useState<ExtractedBill | null>(null);
   const [busy, setBusy] = useState(false);
   const [matches, setMatches] = useState<(string | null)[]>([]);
+  const [linkSaudaId, setLinkSaudaId] = useState<string>("none");
 
   function autoMatch(raw: string): string | null {
     if (!items.data) return null;
@@ -119,12 +121,22 @@ function BillsPage() {
           })
           .eq("id", id);
       }
+
+      // Optionally link the bill back to a sauda
+      if (linkSaudaId && linkSaudaId !== "none") {
+        const { error } = await supabase
+          .from("saudas")
+          .update({ linked_bill_id: bill.id })
+          .eq("id", linkSaudaId);
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
       toast.success("Bill saved");
-      setDraft(null); setFile(null); setMatches([]);
+      setDraft(null); setFile(null); setMatches([]); setLinkSaudaId("none");
       qc.invalidateQueries({ queryKey: ["bills"] });
       qc.invalidateQueries({ queryKey: ["items"] });
+      qc.invalidateQueries({ queryKey: ["saudas"] });
     },
     onError: (e: any) => toast.error(e.message),
   });
@@ -217,11 +229,25 @@ function BillsPage() {
                   </tbody>
                 </table>
               </div>
+              <div className="space-y-1">
+                <Label>Link to Sauda (optional)</Label>
+                <Select value={linkSaudaId} onValueChange={setLinkSaudaId}>
+                  <SelectTrigger className="w-full max-w-md"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— none —</SelectItem>
+                    {saudas.data?.filter((s: any) => !s.linked_bill_id).map((s: any) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.party_name} — {s.sauda_date} — basic {s.sauda_basic}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="flex gap-2">
                 <Button onClick={() => save.mutate()} disabled={save.isPending}>
                   {save.isPending ? "Saving…" : "Save Bill & Update Stock"}
                 </Button>
-                <Button variant="outline" onClick={() => { setDraft(null); setMatches([]); }}>Cancel</Button>
+                <Button variant="outline" onClick={() => { setDraft(null); setMatches([]); setLinkSaudaId("none"); }}>Cancel</Button>
               </div>
             </div>
           )}
