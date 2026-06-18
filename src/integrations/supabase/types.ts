@@ -230,6 +230,7 @@ export type Database = {
           created_at: string
           factory_id: string | null
           id: string
+          lifted_qty: number
           linked_bill_id: string | null
           notes: string | null
           party_name: string
@@ -240,6 +241,7 @@ export type Database = {
           created_at?: string
           factory_id?: string | null
           id?: string
+          lifted_qty?: number
           linked_bill_id?: string | null
           notes?: string | null
           party_name: string
@@ -250,6 +252,7 @@ export type Database = {
           created_at?: string
           factory_id?: string | null
           id?: string
+          lifted_qty?: number
           linked_bill_id?: string | null
           notes?: string | null
           party_name?: string

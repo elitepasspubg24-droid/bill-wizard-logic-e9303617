@@ -1,0 +1,1 @@
+ALTER TABLE public.saudas ADD COLUMN IF NOT EXISTS lifted_qty numeric NOT NULL DEFAULT 0;
