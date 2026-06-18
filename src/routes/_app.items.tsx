@@ -23,9 +23,10 @@ function ItemsPage() {
     const map = new Map<string, { basic: number; party: string; qty: number }>();
     if (!saudas.data) return map;
     for (const s of saudas.data as any[]) {
-      if (s.linked_bill_id) continue;
       if (!s.factory_id) continue;
-      const qty = (s.sauda_items ?? []).reduce((a: number, r: any) => a + Number(r.qty || 0), 0);
+      const total = (s.sauda_items ?? []).reduce((a: number, r: any) => a + Number(r.qty || 0), 0);
+      const qty = Math.max(0, total - Number(s.lifted_qty || 0));
+      if (qty <= 0) continue;
       const cur = map.get(s.factory_id);
       if (!cur || qty > cur.qty) {
         map.set(s.factory_id, { basic: Number(s.sauda_basic), party: s.party_name, qty });
