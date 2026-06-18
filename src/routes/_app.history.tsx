@@ -151,11 +151,11 @@ function HistoryPage() {
                       {sectionCols.map((s) => {
                         const v = row.get(s.id);
                         return (
-                          <>
-                            <td key={s.id + "a"} className="p-1 text-right font-mono border-l">{v ? v.adder : "—"}</td>
-                            <td key={s.id + "s"} className="p-1 text-right font-mono">{v ? v.sauda : "—"}</td>
-                            <td key={s.id + "p"} className="p-1 text-right font-mono">{v ? v.party : "—"}</td>
-                          </>
+                          <FragmentWith key={s.id}>
+                            <td className="p-1 text-right font-mono border-l">{v ? v.adder : "—"}</td>
+                            <td className="p-1 text-right font-mono">{v ? v.sauda : "—"}</td>
+                            <td className="p-1 text-right font-mono">{v ? v.party : "—"}</td>
+                          </FragmentWith>
                         );
                       })}
                     </tr>
