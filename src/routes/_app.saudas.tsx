@@ -202,35 +202,64 @@ function SaudasByCategory({ data, onChanged }: { data: any[]; onChanged: () => v
                   <th className="p-2">Date</th>
                   <th className="p-2">Party</th>
                   <th className="p-2 text-right">Basic</th>
-                  <th className="p-2">Items</th>
+                  <th className="p-2 text-right">Sauda Qty</th>
+                  <th className="p-2 text-right">Lifted</th>
+                  <th className="p-2 text-right">Pending</th>
+                  <th className="p-2">Adjust</th>
                   <th className="p-2">Linked Bill</th>
                   <th className="p-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((s: any) => (
-                  <tr key={s.id} className="border-b last:border-0">
-                    <td className="p-2 whitespace-nowrap">{s.sauda_date}</td>
-                    <td className="p-2 font-medium">{s.party_name}</td>
-                    <td className="p-2 text-right font-mono">{s.sauda_basic}</td>
-                    <td className="p-2">{s.sauda_items?.length ?? 0}</td>
-                    <td className="p-2">
-                      {s.bills ? <Badge variant="outline">{s.bills.bill_no ?? s.bills.vendor}</Badge> : "—"}
-                    </td>
-                    <td className="p-2 text-right">
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        disabled={del.isPending}
-                        onClick={() => {
-                          if (confirm(`Delete sauda for ${s.party_name}?`)) del.mutate(s.id);
-                        }}
-                      >
-                        Delete
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((s: any) => {
+                  const totalQty = (s.sauda_items ?? []).reduce((a: number, i: any) => a + Number(i.qty || 0), 0);
+                  const lifted = Number(s.lifted_qty || 0);
+                  const pending = Math.max(0, totalQty - lifted);
+                  const bump = (delta: number) => {
+                    const next = Math.min(totalQty, Math.max(0, lifted + delta));
+                    adjust.mutate({ id: s.id, lifted_qty: next });
+                  };
+                  return (
+                    <tr key={s.id} className="border-b last:border-0">
+                      <td className="p-2 whitespace-nowrap">{s.sauda_date}</td>
+                      <td className="p-2 font-medium">{s.party_name}</td>
+                      <td className="p-2 text-right font-mono">{s.sauda_basic}</td>
+                      <td className="p-2 text-right font-mono">{totalQty}</td>
+                      <td className="p-2 text-right font-mono">{lifted}</td>
+                      <td className="p-2 text-right font-mono font-semibold">{pending}</td>
+                      <td className="p-2">
+                        <div className="flex items-center gap-1">
+                          <Button size="sm" variant="outline" onClick={() => bump(-1)} disabled={lifted <= 0}>-</Button>
+                          <Input
+                            className="w-20 h-8 text-right"
+                            type="number"
+                            defaultValue={lifted}
+                            onBlur={(e) => {
+                              const v = Number(e.target.value);
+                              if (!Number.isNaN(v) && v !== lifted) adjust.mutate({ id: s.id, lifted_qty: Math.min(totalQty, Math.max(0, v)) });
+                            }}
+                          />
+                          <Button size="sm" variant="outline" onClick={() => bump(1)} disabled={lifted >= totalQty}>+</Button>
+                        </div>
+                      </td>
+                      <td className="p-2">
+                        {s.bills ? <Badge variant="outline">{s.bills.bill_no ?? s.bills.vendor}</Badge> : "—"}
+                      </td>
+                      <td className="p-2 text-right">
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          disabled={del.isPending}
+                          onClick={() => {
+                            if (confirm(`Delete sauda for ${s.party_name}?`)) del.mutate(s.id);
+                          }}
+                        >
+                          Delete
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </CardContent>
