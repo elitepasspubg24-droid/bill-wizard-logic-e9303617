@@ -1,121 +1,84 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchFactories, fetchSections } from "@/lib/queries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 
 export const Route = createFileRoute("/_app/history")({
   component: HistoryPage,
   head: () => ({ meta: [{ title: "Rate History" }] }),
 });
 
-function fmt(ts: string) {
-  return new Date(ts).toLocaleString();
-}
-
-function diffBadge(prev: number | null, cur: number) {
-  if (prev === null) return <Badge variant="outline">initial</Badge>;
-  const d = cur - prev;
-  if (d === 0) return <Badge variant="outline">no change</Badge>;
-  return (
-    <Badge variant={d > 0 ? "default" : "secondary"}>
-      {d > 0 ? "+" : ""}{d}
-    </Badge>
-  );
+function dayKey(ts: string) {
+  return new Date(ts).toISOString().slice(0, 10);
 }
 
 function HistoryPage() {
   const factories = useQuery({ queryKey: ["factories"], queryFn: fetchFactories });
   const sections = useQuery({ queryKey: ["sections"], queryFn: fetchSections });
 
-  const [factoryId, setFactoryId] = useState<string>("all");
-  const [sectionId, setSectionId] = useState<string>("all");
-
   const fHistory = useQuery({
-    queryKey: ["factory_history", factoryId],
+    queryKey: ["factory_history"],
     queryFn: async () => {
-      let q = supabase
+      const { data, error } = await supabase
         .from("factory_rate_history")
         .select("*")
-        .order("changed_at", { ascending: false })
-        .limit(500);
-      if (factoryId !== "all") q = q.eq("factory_id", factoryId);
-      const { data, error } = await q;
+        .order("changed_at", { ascending: true })
+        .limit(2000);
       if (error) throw error;
       return data;
     },
   });
 
   const sHistory = useQuery({
-    queryKey: ["section_history", sectionId],
+    queryKey: ["section_history"],
     queryFn: async () => {
-      let q = supabase
+      const { data, error } = await supabase
         .from("section_rate_history")
         .select("*")
-        .order("changed_at", { ascending: false })
-        .limit(500);
-      if (sectionId !== "all") q = q.eq("section_id", sectionId);
-      const { data, error } = await q;
+        .order("changed_at", { ascending: true })
+        .limit(2000);
       if (error) throw error;
       return data;
     },
   });
 
-  const fMap = useMemo(
-    () => new Map((factories.data ?? []).map((f) => [f.id, f.name])),
-    [factories.data],
-  );
-  const sMap = useMemo(
-    () => new Map((sections.data ?? []).map((s) => [s.id, s.name])),
-    [sections.data],
-  );
-
-  // attach "prev" per group (factory/section) for diff badges
-  const fRows = useMemo(() => {
-    const grouped = new Map<string, any[]>();
-    (fHistory.data ?? []).forEach((r) => {
-      const arr = grouped.get(r.factory_id) ?? [];
-      arr.push(r);
-      grouped.set(r.factory_id, arr);
-    });
-    const out: any[] = [];
-    grouped.forEach((arr) => {
-      // arr is desc by changed_at; prev = next item in array
-      arr.forEach((r, i) => {
-        const prev = arr[i + 1]?.basic_rate ?? null;
-        out.push({ ...r, prev });
-      });
-    });
-    return out.sort((a, b) => (a.changed_at < b.changed_at ? 1 : -1));
+  // Pivot: rows = date (desc), cols = factory => last rate on that day
+  const factoryPivot = useMemo(() => {
+    const byDay = new Map<string, Map<string, number>>();
+    for (const r of fHistory.data ?? []) {
+      const d = dayKey(r.changed_at);
+      if (!byDay.has(d)) byDay.set(d, new Map());
+      byDay.get(d)!.set(r.factory_id, Number(r.basic_rate));
+    }
+    return [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1));
   }, [fHistory.data]);
 
-  const sRows = useMemo(() => {
-    const grouped = new Map<string, any[]>();
-    (sHistory.data ?? []).forEach((r) => {
-      const arr = grouped.get(r.section_id) ?? [];
-      arr.push(r);
-      grouped.set(r.section_id, arr);
-    });
-    const out: any[] = [];
-    grouped.forEach((arr) => {
-      arr.forEach((r, i) => {
-        const prev = arr[i + 1] ?? null;
-        out.push({ ...r, prev });
+  const sectionPivot = useMemo(() => {
+    const byDay = new Map<string, Map<string, { adder: number; sauda: number; party: number }>>();
+    for (const r of sHistory.data ?? []) {
+      const d = dayKey(r.changed_at);
+      if (!byDay.has(d)) byDay.set(d, new Map());
+      byDay.get(d)!.set(r.section_id, {
+        adder: Number(r.adder),
+        sauda: Number(r.sauda_basic),
+        party: Number(r.party_basic),
       });
-    });
-    return out.sort((a, b) => (a.changed_at < b.changed_at ? 1 : -1));
+    }
+    return [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1));
   }, [sHistory.data]);
+
+  const factoryCols = factories.data ?? [];
+  const sectionCols = sections.data ?? [];
 
   return (
     <div className="space-y-4">
       <div>
         <h2 className="text-2xl font-bold">Rate History</h2>
         <p className="text-sm text-muted-foreground">
-          Every change to factory basic rates and section adders/basics is recorded with a timestamp.
+          Daily snapshot of factory and section rates. Each row is one date, columns are factories/sections.
         </p>
       </div>
 
@@ -127,39 +90,30 @@ function HistoryPage() {
 
         <TabsContent value="factories">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-3">
-              <CardTitle className="text-base">Factory basic rate changes</CardTitle>
-              <Select value={factoryId} onValueChange={setFactoryId}>
-                <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All factories</SelectItem>
-                  {factories.data?.map((f) => (
-                    <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardHeader>
+            <CardHeader><CardTitle className="text-base">Daily Factory Basic Rates</CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="border-b text-left text-muted-foreground">
-                  <tr>
-                    <th className="p-2">When</th>
-                    <th className="p-2">Factory</th>
-                    <th className="p-2 text-right">Basic Rate</th>
-                    <th className="p-2">Change</th>
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="border-b bg-muted/40">
+                    <th className="p-2 text-left">Date</th>
+                    {factoryCols.map((f) => (
+                      <th key={f.id} className="p-2 text-right whitespace-nowrap">{f.name}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {fRows.map((r) => (
-                    <tr key={r.id} className="border-b last:border-0">
-                      <td className="p-2 whitespace-nowrap">{fmt(r.changed_at)}</td>
-                      <td className="p-2 font-medium">{fMap.get(r.factory_id) ?? r.factory_id}</td>
-                      <td className="p-2 text-right font-mono">{Number(r.basic_rate)}</td>
-                      <td className="p-2">{diffBadge(r.prev !== null ? Number(r.prev) : null, Number(r.basic_rate))}</td>
+                  {factoryPivot.map(([d, row]) => (
+                    <tr key={d} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="p-2 font-medium whitespace-nowrap">{d}</td>
+                      {factoryCols.map((f) => (
+                        <td key={f.id} className="p-2 text-right font-mono">
+                          {row.has(f.id) ? row.get(f.id) : <span className="text-muted-foreground">—</span>}
+                        </td>
+                      ))}
                     </tr>
                   ))}
-                  {!fRows.length && (
-                    <tr><td colSpan={4} className="p-6 text-center text-muted-foreground">No history yet.</td></tr>
+                  {!factoryPivot.length && (
+                    <tr><td colSpan={factoryCols.length + 1} className="p-6 text-center text-muted-foreground">No history yet.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -169,55 +123,44 @@ function HistoryPage() {
 
         <TabsContent value="sections">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-3">
-              <CardTitle className="text-base">Section adder / basic changes</CardTitle>
-              <Select value={sectionId} onValueChange={setSectionId}>
-                <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All sections</SelectItem>
-                  {sections.data?.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardHeader>
+            <CardHeader><CardTitle className="text-base">Daily Section Rates (Adder / Sauda / Party)</CardTitle></CardHeader>
             <CardContent className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="border-b text-left text-muted-foreground">
-                  <tr>
-                    <th className="p-2">When</th>
-                    <th className="p-2">Section</th>
-                    <th className="p-2 text-right">Adder</th>
-                    <th className="p-2 text-right">Sauda Basic</th>
-                    <th className="p-2 text-right">Party Basic</th>
-                    <th className="p-2">Changed</th>
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="border-b bg-muted/40">
+                    <th className="p-2 text-left" rowSpan={2}>Date</th>
+                    {sectionCols.map((s) => (
+                      <th key={s.id} className="p-2 text-center border-l" colSpan={3}>{s.name}</th>
+                    ))}
+                  </tr>
+                  <tr className="border-b bg-muted/20 text-muted-foreground">
+                    {sectionCols.map((s) => (
+                      <>
+                        <th key={s.id + "a"} className="p-1 text-right border-l">Adder</th>
+                        <th key={s.id + "s"} className="p-1 text-right">Sauda</th>
+                        <th key={s.id + "p"} className="p-1 text-right">Party</th>
+                      </>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {sRows.map((r) => {
-                    const changed: string[] = [];
-                    if (r.prev) {
-                      if (Number(r.prev.adder) !== Number(r.adder)) changed.push("adder");
-                      if (Number(r.prev.sauda_basic) !== Number(r.sauda_basic)) changed.push("sauda");
-                      if (Number(r.prev.party_basic) !== Number(r.party_basic)) changed.push("party");
-                    }
-                    return (
-                      <tr key={r.id} className="border-b last:border-0">
-                        <td className="p-2 whitespace-nowrap">{fmt(r.changed_at)}</td>
-                        <td className="p-2 font-medium">{sMap.get(r.section_id) ?? r.section_id}</td>
-                        <td className="p-2 text-right font-mono">{Number(r.adder)}</td>
-                        <td className="p-2 text-right font-mono">{Number(r.sauda_basic)}</td>
-                        <td className="p-2 text-right font-mono">{Number(r.party_basic)}</td>
-                        <td className="p-2">
-                          {!r.prev ? <Badge variant="outline">initial</Badge>
-                            : changed.length === 0 ? <Badge variant="outline">no change</Badge>
-                            : changed.map((c) => <Badge key={c} className="mr-1" variant="secondary">{c}</Badge>)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {!sRows.length && (
-                    <tr><td colSpan={6} className="p-6 text-center text-muted-foreground">No history yet.</td></tr>
+                  {sectionPivot.map(([d, row]) => (
+                    <tr key={d} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="p-2 font-medium whitespace-nowrap">{d}</td>
+                      {sectionCols.map((s) => {
+                        const v = row.get(s.id);
+                        return (
+                          <>
+                            <td key={s.id + "a"} className="p-1 text-right font-mono border-l">{v ? v.adder : "—"}</td>
+                            <td key={s.id + "s"} className="p-1 text-right font-mono">{v ? v.sauda : "—"}</td>
+                            <td key={s.id + "p"} className="p-1 text-right font-mono">{v ? v.party : "—"}</td>
+                          </>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                  {!sectionPivot.length && (
+                    <tr><td colSpan={sectionCols.length * 3 + 1} className="p-6 text-center text-muted-foreground">No history yet.</td></tr>
                   )}
                 </tbody>
               </table>
