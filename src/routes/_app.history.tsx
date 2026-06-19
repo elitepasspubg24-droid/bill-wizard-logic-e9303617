@@ -1,5 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Fragment as FragmentWith } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -14,6 +13,11 @@ export const Route = createFileRoute("/_app/history")({
 
 function dayKey(ts: string) {
   return new Date(ts).toISOString().slice(0, 10);
+}
+
+function fmtDate(d: string) {
+  const dt = new Date(d);
+  return dt.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 }
 
 function HistoryPage() {
@@ -46,40 +50,40 @@ function HistoryPage() {
     },
   });
 
-  // Pivot: rows = date (desc), cols = factory => last rate on that day
-  const factoryPivot = useMemo(() => {
-    const byDay = new Map<string, Map<string, number>>();
+  // Date -> factory_id -> last rate that day
+  const factoryByDay = useMemo(() => {
+    const m = new Map<string, Map<string, number>>();
     for (const r of fHistory.data ?? []) {
       const d = dayKey(r.changed_at);
-      if (!byDay.has(d)) byDay.set(d, new Map());
-      byDay.get(d)!.set(r.factory_id, Number(r.basic_rate));
+      if (!m.has(d)) m.set(d, new Map());
+      m.get(d)!.set(r.factory_id, Number(r.basic_rate));
     }
-    return [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1));
+    return [...m.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1));
   }, [fHistory.data]);
 
-  const sectionPivot = useMemo(() => {
-    const byDay = new Map<string, Map<string, { adder: number; sauda: number; party: number }>>();
+  const sectionByDay = useMemo(() => {
+    const m = new Map<string, Map<string, { adder: number; sauda: number; party: number }>>();
     for (const r of sHistory.data ?? []) {
       const d = dayKey(r.changed_at);
-      if (!byDay.has(d)) byDay.set(d, new Map());
-      byDay.get(d)!.set(r.section_id, {
+      if (!m.has(d)) m.set(d, new Map());
+      m.get(d)!.set(r.section_id, {
         adder: Number(r.adder),
         sauda: Number(r.sauda_basic),
         party: Number(r.party_basic),
       });
     }
-    return [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1));
+    return [...m.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1));
   }, [sHistory.data]);
 
-  const factoryCols = factories.data ?? [];
-  const sectionCols = sections.data ?? [];
+  const facs = factories.data ?? [];
+  const secs = sections.data ?? [];
 
   return (
     <div className="space-y-4">
       <div>
         <h2 className="text-2xl font-bold">Rate History</h2>
         <p className="text-sm text-muted-foreground">
-          Daily snapshot of factory and section rates. Each row is one date, columns are factories/sections.
+          One card per date. No horizontal scrolling — values wrap to fit your screen.
         </p>
       </div>
 
@@ -89,84 +93,74 @@ function HistoryPage() {
           <TabsTrigger value="sections">Section Rates</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="factories">
-          <Card>
-            <CardHeader><CardTitle className="text-base">Daily Factory Basic Rates</CardTitle></CardHeader>
-            <CardContent className="overflow-x-auto">
-              <table className="w-full text-sm border-collapse">
-                <thead>
-                  <tr className="border-b bg-muted/40">
-                    <th className="p-2 text-left">Date</th>
-                    {factoryCols.map((f) => (
-                      <th key={f.id} className="p-2 text-right whitespace-nowrap">{f.name}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {factoryPivot.map(([d, row]) => (
-                    <tr key={d} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="p-2 font-medium whitespace-nowrap">{d}</td>
-                      {factoryCols.map((f) => (
-                        <td key={f.id} className="p-2 text-right font-mono">
-                          {row.has(f.id) ? row.get(f.id) : <span className="text-muted-foreground">—</span>}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                  {!factoryPivot.length && (
-                    <tr><td colSpan={factoryCols.length + 1} className="p-6 text-center text-muted-foreground">No history yet.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </CardContent>
-          </Card>
+        <TabsContent value="factories" className="space-y-3">
+          {factoryByDay.map(([d, row]) => (
+            <Card key={d}>
+              <CardHeader className="py-3">
+                <CardTitle className="text-sm font-semibold">{fmtDate(d)}</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                  {facs.map((f) => {
+                    const v = row.get(f.id);
+                    return (
+                      <div
+                        key={f.id}
+                        className="rounded-md border bg-muted/30 px-3 py-2 flex flex-col"
+                      >
+                        <span className="text-xs text-muted-foreground truncate">{f.name}</span>
+                        <span className="font-mono text-base font-semibold">
+                          {v ?? <span className="text-muted-foreground">—</span>}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+          {!factoryByDay.length && (
+            <Card><CardContent className="p-6 text-center text-muted-foreground">No history yet.</CardContent></Card>
+          )}
         </TabsContent>
 
-        <TabsContent value="sections">
-          <Card>
-            <CardHeader><CardTitle className="text-base">Daily Section Rates (Adder / Sauda / Party)</CardTitle></CardHeader>
-            <CardContent className="overflow-x-auto">
-              <table className="w-full text-xs border-collapse">
-                <thead>
-                  <tr className="border-b bg-muted/40">
-                    <th className="p-2 text-left" rowSpan={2}>Date</th>
-                    {sectionCols.map((s) => (
-                      <th key={s.id} className="p-2 text-center border-l" colSpan={3}>{s.name}</th>
-                    ))}
-                  </tr>
-                  <tr className="border-b bg-muted/20 text-muted-foreground">
-                    {sectionCols.map((s) => (
-                      <FragmentWith key={s.id}>
-                        <th className="p-1 text-right border-l">Adder</th>
-                        <th className="p-1 text-right">Sauda</th>
-                        <th className="p-1 text-right">Party</th>
-                      </FragmentWith>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sectionPivot.map(([d, row]) => (
-                    <tr key={d} className="border-b last:border-0 hover:bg-muted/30">
-                      <td className="p-2 font-medium whitespace-nowrap">{d}</td>
-                      {sectionCols.map((s) => {
-                        const v = row.get(s.id);
-                        return (
-                          <FragmentWith key={s.id}>
-                            <td className="p-1 text-right font-mono border-l">{v ? v.adder : "—"}</td>
-                            <td className="p-1 text-right font-mono">{v ? v.sauda : "—"}</td>
-                            <td className="p-1 text-right font-mono">{v ? v.party : "—"}</td>
-                          </FragmentWith>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                  {!sectionPivot.length && (
-                    <tr><td colSpan={sectionCols.length * 3 + 1} className="p-6 text-center text-muted-foreground">No history yet.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </CardContent>
-          </Card>
+        <TabsContent value="sections" className="space-y-3">
+          {sectionByDay.map(([d, row]) => (
+            <Card key={d}>
+              <CardHeader className="py-3">
+                <CardTitle className="text-sm font-semibold">{fmtDate(d)}</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                  {secs.map((s) => {
+                    const v = row.get(s.id);
+                    return (
+                      <div key={s.id} className="rounded-md border bg-muted/30 px-3 py-2">
+                        <div className="text-xs font-medium truncate mb-1">{s.name}</div>
+                        <div className="grid grid-cols-3 gap-1 text-center">
+                          <div>
+                            <div className="text-[10px] uppercase text-muted-foreground">Adder</div>
+                            <div className="font-mono text-sm">{v ? v.adder : "—"}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase text-muted-foreground">Sauda</div>
+                            <div className="font-mono text-sm">{v ? v.sauda : "—"}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] uppercase text-muted-foreground">Party</div>
+                            <div className="font-mono text-sm">{v ? v.party : "—"}</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+          {!sectionByDay.length && (
+            <Card><CardContent className="p-6 text-center text-muted-foreground">No history yet.</CardContent></Card>
+          )}
         </TabsContent>
       </Tabs>
     </div>
