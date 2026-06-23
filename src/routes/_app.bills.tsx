@@ -2,7 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
-import { fetchBills, fetchItems, fetchSaudas } from "@/lib/queries";
+import { fetchBills, fetchItems, fetchSaudas, fetchSections } from "@/lib/queries";
+import { ItemPicker } from "@/components/ItemPicker";
 import { supabase } from "@/integrations/supabase/client";
 import { extractBillFromImage, type ExtractedBill } from "@/lib/ai.functions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,11 +43,13 @@ function fileToDataUrl(file: File): Promise<string> {
 function EditBillDialog({
   bill,
   items,
+  sections,
   open,
   onClose,
 }: {
   bill: any;
   items: any[];
+  sections: any[];
   open: boolean;
   onClose: () => void;
 }) {
@@ -124,24 +127,17 @@ function EditBillDialog({
                     <tr key={bi.id} className="border-b">
                       <td className="p-2 text-muted-foreground">{bi.raw_name}</td>
                       <td className="p-2">
-                        <Select
-                          value={bi.item_id ?? "none"}
-                          onValueChange={(v) => {
+                        <ItemPicker
+                          items={items}
+                          sections={sections}
+                          value={bi.item_id}
+                          onChange={(id) => {
                             const updated = [...billItems];
-                            updated[i] = { ...updated[i], item_id: v === "none" ? null : v };
+                            updated[i] = { ...updated[i], item_id: id };
                             setBillItems(updated);
                           }}
-                        >
-                          <SelectTrigger className="w-48">
-                            <SelectValue placeholder="Unmatched" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">— skip —</SelectItem>
-                            {items.map((opt) => (
-                              <SelectItem key={opt.id} value={opt.id}>{opt.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          width="w-56"
+                        />
                       </td>
                       <td className="p-2">
                         <Input
@@ -273,6 +269,7 @@ function BillsPage() {
   const qc = useQueryClient();
   const bills = useQuery({ queryKey: ["bills"], queryFn: fetchBills });
   const items = useQuery({ queryKey: ["items"], queryFn: fetchItems });
+  const sections = useQuery({ queryKey: ["sections"], queryFn: fetchSections });
   const saudas = useQuery({ queryKey: ["saudas"], queryFn: fetchSaudas });
   const extract = useServerFn(extractBillFromImage);
  
@@ -468,20 +465,15 @@ function BillsPage() {
                       <tr key={i} className="border-b">
                         <td className="p-2">{it.raw_name}</td>
                         <td className="p-2">
-                          <Select
-                            value={matches[i] ?? "none"}
-                            onValueChange={(v) => {
-                              const n = [...matches]; n[i] = v === "none" ? null : v; setMatches(n);
+                          <ItemPicker
+                            items={items.data ?? []}
+                            sections={sections.data ?? []}
+                            value={matches[i]}
+                            onChange={(id) => {
+                              const n = [...matches]; n[i] = id; setMatches(n);
                             }}
-                          >
-                            <SelectTrigger className="w-64"><SelectValue placeholder="Unmatched" /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">— skip —</SelectItem>
-                              {items.data?.map((opt) => (
-                                <SelectItem key={opt.id} value={opt.id}>{opt.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                            width="w-72"
+                          />
                         </td>
                         <td className="p-2">
                           <Input type="number" value={it.qty} onChange={(e) => {
@@ -588,6 +580,7 @@ function BillsPage() {
         <EditBillDialog
           bill={editBill}
           items={items.data ?? []}
+          sections={sections.data ?? []}
           open={!!editBill}
           onClose={() => setEditBill(null)}
         />
