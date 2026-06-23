@@ -45,7 +45,9 @@ function RatesPage() {
               <tr className="text-left">
                 <th className="p-2">Section</th>
                 <th className="p-2">Factory</th>
+                <th className="p-2">Today's Basic</th>
                 <th className="p-2">Adder (+)</th>
+                <th className="p-2">Today's Rate</th>
                 <th className="p-2">Sauda Basic</th>
                 <th className="p-2">Party Basic</th>
                 <th className="p-2"></th>
