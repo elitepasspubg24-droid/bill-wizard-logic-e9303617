@@ -580,6 +580,7 @@ function BillsPage() {
         <EditBillDialog
           bill={editBill}
           items={items.data ?? []}
+          sections={sections.data ?? []}
           open={!!editBill}
           onClose={() => setEditBill(null)}
         />
