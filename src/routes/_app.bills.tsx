@@ -43,11 +43,13 @@ function fileToDataUrl(file: File): Promise<string> {
 function EditBillDialog({
   bill,
   items,
+  sections,
   open,
   onClose,
 }: {
   bill: any;
   items: any[];
+  sections: any[];
   open: boolean;
   onClose: () => void;
 }) {
