@@ -81,7 +81,7 @@ function ItemsPage() {
       </div>
 
       {grouped.map(({ section, factory, top, rows }) => (
-        <Card key={section.id}>
+        <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20">
           <CardHeader>
             <CardTitle className="text-base">
               {section.name}{" "}
