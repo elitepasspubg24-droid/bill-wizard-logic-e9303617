@@ -269,6 +269,7 @@ function BillsPage() {
   const qc = useQueryClient();
   const bills = useQuery({ queryKey: ["bills"], queryFn: fetchBills });
   const items = useQuery({ queryKey: ["items"], queryFn: fetchItems });
+  const sections = useQuery({ queryKey: ["sections"], queryFn: fetchSections });
   const saudas = useQuery({ queryKey: ["saudas"], queryFn: fetchSaudas });
   const extract = useServerFn(extractBillFromImage);
  
