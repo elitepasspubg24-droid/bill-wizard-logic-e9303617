@@ -71,28 +71,29 @@ function FactoryRow({ factory, onSaved }: { factory: any; onSaved: () => void })
   );
 }
 
-type RowState = { adder: string; sb: string; pAdder: string };
+type RowState = { adder: string; pAdder: string };
 
 function SectionsCard({ sections, factories, onSaved }: { sections: any[]; factories: any[]; onSaved: () => void }) {
   const [globalPartyAdder, setGlobalPartyAdder] = useState("");
   const [rows, setRows] = useState<Record<string, RowState>>({});
 
-  // Initialize / sync row state when section data changes
   useEffect(() => {
     setRows((prev) => {
       const next: Record<string, RowState> = {};
       for (const s of sections) {
         const existing = prev[s.id];
-        const derivedPartyAdder = Number(s.party_basic) - Number(s.sauda_basic);
+        // party_basic = todayBasic + adder + pAdder  →  pAdder = party_basic - todayBasic - adder
+        const factory = factories.find((f: any) => f.id === s.factory_id);
+        const todayBasic = Number(factory?.basic_rate ?? 0);
+        const derivedPartyAdder = Number(s.party_basic) - todayBasic - Number(s.adder);
         next[s.id] = existing ?? {
           adder: String(s.adder),
-          sb: String(s.sauda_basic),
           pAdder: Number.isFinite(derivedPartyAdder) ? String(derivedPartyAdder) : "0",
         };
       }
       return next;
     });
-  }, [sections]);
+  }, [sections, factories]);
 
   const updateRow = (id: string, patch: Partial<RowState>) =>
     setRows((r) => ({ ...r, [id]: { ...r[id], ...patch } }));
@@ -108,18 +109,21 @@ function SectionsCard({ sections, factories, onSaved }: { sections: any[]; facto
 
   const saveAll = useMutation({
     mutationFn: async () => {
-      const updates = sections.map((s) => {
+      const failures: string[] = [];
+      for (const s of sections) {
         const r = rows[s.id];
-        const sb = Number(r.sb) || 0;
+        if (!r) continue;
+        const factory = factories.find((f: any) => f.id === s.factory_id);
+        const todayBasic = Number(factory?.basic_rate ?? 0);
+        const adder = Number(r.adder) || 0;
         const pAdder = Number(r.pAdder) || 0;
-        return supabase
+        const { error } = await supabase
           .from("sections")
-          .update({ adder: Number(r.adder) || 0, sauda_basic: sb, party_basic: sb + pAdder })
+          .update({ adder, party_basic: todayBasic + adder + pAdder })
           .eq("id", s.id);
-      });
-      const results = await Promise.all(updates);
-      const err = results.find((x) => x.error)?.error;
-      if (err) throw err;
+        if (error) failures.push(`${s.name}: ${error.message}`);
+      }
+      if (failures.length) throw new Error(failures.join(" | "));
     },
     onSuccess: () => { toast.success("All sections saved"); onSaved(); },
     onError: (e: any) => toast.error(e.message),
@@ -129,7 +133,7 @@ function SectionsCard({ sections, factories, onSaved }: { sections: any[]; facto
     <Card>
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center justify-between gap-3">
-          <span>Section Adders & Basics</span>
+          <span>Section Adders</span>
           <div className="flex items-center gap-2 text-sm font-normal">
             <Label className="text-xs">Party Adder (all):</Label>
             <Input
@@ -155,7 +159,6 @@ function SectionsCard({ sections, factories, onSaved }: { sections: any[]; facto
               <th className="p-2">Today's Basic</th>
               <th className="p-2">Adder (+)</th>
               <th className="p-2">Today's Rate</th>
-              <th className="p-2">Sauda Basic</th>
               <th className="p-2">Party Adder (+)</th>
               <th className="p-2">Party Basic</th>
             </tr>
@@ -163,10 +166,10 @@ function SectionsCard({ sections, factories, onSaved }: { sections: any[]; facto
           <tbody>
             {sections.map((s) => {
               const factory = factories.find((f: any) => f.id === s.factory_id);
-              const r = rows[s.id] ?? { adder: "0", sb: "0", pAdder: "0" };
+              const r = rows[s.id] ?? { adder: "0", pAdder: "0" };
               const todayBasic = Number(factory?.basic_rate ?? 0);
               const todayRate = todayBasic + (Number(r.adder) || 0);
-              const partyBasic = (Number(r.sb) || 0) + (Number(r.pAdder) || 0);
+              const partyBasic = todayRate + (Number(r.pAdder) || 0);
               return (
                 <tr key={s.id} className="border-b">
                   <td className="p-2 font-medium">{s.name}</td>
@@ -177,10 +180,6 @@ function SectionsCard({ sections, factories, onSaved }: { sections: any[]; facto
                       onChange={(e) => updateRow(s.id, { adder: e.target.value })} />
                   </td>
                   <td className="p-2 font-mono font-semibold text-primary">{todayRate.toFixed(0)}</td>
-                  <td className="p-2">
-                    <Input className="w-24" type="number" value={r.sb}
-                      onChange={(e) => updateRow(s.id, { sb: e.target.value })} />
-                  </td>
                   <td className="p-2">
                     <Input className="w-24" type="number" value={r.pAdder}
                       onChange={(e) => updateRow(s.id, { pAdder: e.target.value })} />
@@ -195,4 +194,5 @@ function SectionsCard({ sections, factories, onSaved }: { sections: any[]; facto
     </Card>
   );
 }
+
 
