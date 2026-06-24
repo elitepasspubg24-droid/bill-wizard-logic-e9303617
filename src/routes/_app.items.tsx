@@ -156,7 +156,8 @@ function ItemsPage() {
             </table>
           </CardContent>
         </Card>
-      ))}
+        );
+      })}
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
