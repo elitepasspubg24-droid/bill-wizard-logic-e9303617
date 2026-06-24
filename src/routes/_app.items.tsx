@@ -26,25 +26,37 @@ function ItemsPage() {
   const items = useQuery({ queryKey: ["items"], queryFn: fetchItems });
   const saudas = useQuery({ queryKey: ["saudas"], queryFn: fetchSaudas });
   const [q, setQ] = useState("");
+  // factoryId -> selected sauda id ("" = default top-pending)
+  const [pickedSauda, setPickedSauda] = useState<Record<string, string>>({});
 
-  // For each factory, find the open sauda with the highest pending qty.
-  const topPendingByFactory = useMemo(() => {
-    const map = new Map<string, { basic: number; party: string; qty: number }>();
+  // All open saudas with pending qty, grouped by factory
+  const openSaudasByFactory = useMemo(() => {
+    const map = new Map<string, any[]>();
     if (!saudas.data) return map;
     for (const s of saudas.data as any[]) {
-      if (!s.factory_id) continue;
-      if (s.status === "done") continue;
+      if (!s.factory_id || s.status === "done") continue;
       const itemsTotal = (s.sauda_items ?? []).reduce((a: number, r: any) => a + Number(r.qty || 0), 0);
       const total = Number(s.total_qty || 0) || itemsTotal;
-      const qty = Math.max(0, total - Number(s.lifted_qty || 0));
-      if (qty <= 0) continue;
-      const cur = map.get(s.factory_id);
-      if (!cur || qty > cur.qty) {
-        map.set(s.factory_id, { basic: Number(s.sauda_basic), party: s.party_name, qty });
-      }
+      const pending = Math.max(0, total - Number(s.lifted_qty || 0));
+      if (pending <= 0) continue;
+      const arr = map.get(s.factory_id) ?? [];
+      arr.push({ id: s.id, basic: Number(s.sauda_basic), party: s.party_name, pending });
+      map.set(s.factory_id, arr);
     }
+    // sort each factory by pending desc
+    for (const [k, arr] of map) arr.sort((a, b) => b.pending - a.pending);
     return map;
   }, [saudas.data]);
+
+  const chosenByFactory = useMemo(() => {
+    const map = new Map<string, { basic: number; party: string; pending: number; id: string }>();
+    for (const [fid, list] of openSaudasByFactory) {
+      const pickId = pickedSauda[fid];
+      const picked = (pickId && list.find((x) => x.id === pickId)) || list[0];
+      if (picked) map.set(fid, picked);
+    }
+    return map;
+  }, [openSaudasByFactory, pickedSauda]);
 
   const grouped = useMemo(() => {
     if (!sections.data || !items.data || !factories.data) return [];
@@ -52,9 +64,9 @@ function ItemsPage() {
     return sections.data.map((s) => {
       const f = fmap.get(s.factory_id);
       const baseToday = (f?.basic_rate ?? 0) + Number(s.adder);
-      const top = topPendingByFactory.get(s.factory_id);
+      const top = chosenByFactory.get(s.factory_id);
       const baseSauda = top ? top.basic + Number(s.adder) : null;
-      const baseParty = Number(s.party_basic) + Number(s.adder);
+      const baseParty = Number(s.party_basic); // party_basic already = todayBasic + adder + party_adder
       const rows = items
         .data!.filter((i) => i.section_id === s.id)
         .filter((i) => !q || i.name.toLowerCase().includes(q.toLowerCase()))
@@ -66,7 +78,8 @@ function ItemsPage() {
         }));
       return { section: s, factory: f, top, rows };
     }).filter((g) => g.rows.length > 0);
-  }, [factories.data, sections.data, items.data, topPendingByFactory, q]);
+  }, [factories.data, sections.data, items.data, chosenByFactory, q]);
+
 
   return (
     <div className="space-y-4">
