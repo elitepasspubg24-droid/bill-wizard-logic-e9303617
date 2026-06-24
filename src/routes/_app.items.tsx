@@ -94,15 +94,37 @@ function ItemsPage() {
         <Input placeholder="Search item…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" />
       </div>
 
-      {grouped.map(({ section, factory, top, rows }) => (
+      {grouped.map(({ section, factory, top, rows }) => {
+        const factoryOpenSaudas = factory ? (openSaudasByFactory.get(factory.id) ?? []) : [];
+        return (
         <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20">
-          <CardHeader>
-            <CardTitle className="text-base">
-              {section.name}{" "}
-              <span className="text-xs font-normal text-muted-foreground">
-                ({factory?.name} {factory?.basic_rate} + {section.adder} adder
-                {top ? ` · sauda ${top.basic} from ${top.party} (${top.qty} pending)` : " · no pending sauda"})
+          <CardHeader className="sticky top-14 z-10 bg-card border-b">
+            <CardTitle className="text-base flex flex-wrap items-center justify-between gap-2">
+              <span>
+                {section.name}{" "}
+                <span className="text-xs font-normal text-muted-foreground">
+                  ({factory?.name} {factory?.basic_rate} + {section.adder} adder
+                  {top ? ` · sauda ${top.basic} from ${top.party} (${top.pending} pending)` : " · no pending sauda"})
+                </span>
               </span>
+              {factory && factoryOpenSaudas.length > 0 && (
+                <div className="flex items-center gap-2 text-xs font-normal">
+                  <span className="text-muted-foreground">Sauda:</span>
+                  <Select
+                    value={pickedSauda[factory.id] ?? factoryOpenSaudas[0].id}
+                    onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}
+                  >
+                    <SelectTrigger className="h-7 w-64 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {factoryOpenSaudas.map((o) => (
+                        <SelectItem key={o.id} value={o.id} className="text-xs">
+                          {o.party} — basic {o.basic} ({o.pending} pending)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="overflow-x-auto">
