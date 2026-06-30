@@ -2,23 +2,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { fetchFactories, fetchSections, fetchItems, fetchSaudas } from "@/lib/queries";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { List, FileDown } from "lucide-react";
+import { List, FileDown, RotateCcw, Factory } from "lucide-react";
 
 export const Route = createFileRoute("/_app/items")({
   component: ItemsPage,
-  head: () => ({ meta: [{ title: "Items" }] }),
+  head: () => ({ meta: [{ title: "Items Summary" }] }),
 });
 
 function ItemsPage() {
@@ -26,8 +17,10 @@ function ItemsPage() {
   const sections = useQuery({ queryKey: ["sections"], queryFn: fetchSections });
   const items = useQuery({ queryKey: ["items"], queryFn: fetchItems });
   const saudas = useQuery({ queryKey: ["saudas"], queryFn: fetchSaudas });
+  
   const [q, setQ] = useState("");
   const [pickedSauda, setPickedSauda] = useState<Record<string, string>>({});
+  const [rateOffset, setRateOffset] = useState<number>(0);
 
   const allOpenSaudas = useMemo(() => {
     const list: any[] = [];
@@ -60,7 +53,7 @@ function ItemsPage() {
     const fmap = new Map(factories.data.map((f) => [f.id, f]));
     return sections.data.map((s) => {
       const f = fmap.get(s.factory_id);
-      const baseToday = (f?.basic_rate ?? 0) + Number(s.adder);
+      const baseToday = (f?.basic_rate ?? 0) + Number(s.adder) + rateOffset;
       const top = chosenByFactory.get(s.factory_id);
       const baseSauda = top ? top.basic + Number(s.adder) : null;
       const baseParty = Number(s.party_basic);
@@ -75,128 +68,96 @@ function ItemsPage() {
         }));
       return { section: s, factory: f, top, rows };
     }).filter((g) => g.rows.length > 0);
-  }, [factories.data, sections.data, items.data, chosenByFactory, q]);
-
-  const handleExportCSV = () => {
-    let csvContent = "data:text/csv;charset=utf-8,";
-    
-    grouped.forEach(({ section, rows }) => {
-      csvContent += `SECTION: ${section.name.toUpperCase()}\r\n`;
-      csvContent += "Item,Stock Qty,Last Purchase Rate\r\n";
-      
-      rows.forEach((r) => {
-        const row = [
-          `"${r.name}"`, 
-          Number(r.available_qty).toFixed(2), 
-          `"${r.last_purchase_rate ?? "—"}"`
-        ];
-        csvContent += row.join(",") + "\r\n";
-      });
-      
-      csvContent += "\r\n\r\n";
-    });
-    
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "Stock_Report.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+  }, [factories.data, sections.data, items.data, chosenByFactory, q, rateOffset]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+    <div className="w-full space-y-3 px-1">
+      {/* Dynamic Top Dashboard Strip */}
+      <div className="flex items-center justify-between gap-3 border-b pb-2 flex-wrap">
         <div>
-          <h2 className="text-2xl font-bold">Items</h2>
-          <p className="text-sm text-muted-foreground">
-            Sauda Rate = top-pending sauda basic (per factory) + section adder + gauge diff.
-          </p>
+          <h2 className="text-xl font-bold tracking-tight">Live Rates Matrix</h2>
         </div>
-        <div className="flex items-center gap-2">
-          <Input placeholder="Search item…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" />
-          <Button onClick={handleExportCSV} variant="outline" className="gap-2">
-            <FileDown className="h-4 w-4" />
-            Export CSV
-          </Button>
+        
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Quick Shifts Panel */}
+          <div className="flex items-center gap-1 border rounded-md p-0.5 bg-muted/50 text-xs">
+            <span className="px-2 font-medium text-muted-foreground">Shift All:</span>
+            <button className="h-6 px-1.5 rounded bg-background border hover:bg-red-50 text-red-600" onClick={() => setRateOffset(p => p - 100)}>-100</button>
+            <button className="h-6 px-1.5 rounded bg-background border hover:bg-emerald-50 text-emerald-600" onClick={() => setRateOffset(p => p + 100)}>+100</button>
+            {rateOffset !== 0 && (
+              <button className="h-6 px-1.5 rounded bg-amber-100 text-amber-800 font-bold flex items-center gap-1" onClick={() => setRateOffset(0)}>
+                <RotateCcw className="h-3 w-3" /> Clr ({rateOffset > 0 ? `+${rateOffset}` : rateOffset})
+              </button>
+            )}
+          </div>
+
+          <Input placeholder="Filter item…" value={q} onChange={(e) => setQ(e.target.value)} className="w-40 h-7 text-xs" />
         </div>
       </div>
 
-      {grouped.map(({ section, factory, top, rows }) => (
-        <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20 overflow-visible">
-          {/* Merged Header Component: Stays sticky at the top together */}
-          <div className="sticky top-14 z-20 bg-card border-b shadow-sm">
-            {/* Section Name & Sauda Dropdown */}
-            <div className="p-3 md:p-4 pb-2 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-base font-bold text-foreground">
-                {section.name}{" "}
-                <span className="text-xs font-normal text-muted-foreground">
-                  ({factory?.name} {factory?.basic_rate} + {section.adder} adder
-                  {top ? ` · sauda ${top.basic} from ${top.party} (${top.pending} pending)` : " · no pending sauda"})
-                </span>
-              </h3>
-              {factory && allOpenSaudas.length > 0 && (
-                <div className="flex items-center gap-2 text-xs font-normal">
-                  <span className="text-muted-foreground">Sauda:</span>
-                  <Select value={pickedSauda[factory.id] ?? top?.id ?? ""} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
-                    <SelectTrigger className="h-7 w-64 md:w-72 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {allOpenSaudas.map((o) => {
-                        const fName = factories.data?.find((f) => f.id === o.factory_id)?.name ?? "Unknown";
-                        return <SelectItem key={o.id} value={o.id} className="text-xs">{o.party} ({fName}) — basic {o.basic} ({o.pending} pending)</SelectItem>;
-                      })}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </div>
-            
-            {/* Table Column Labels Row */}
-            <div className="px-3 md:px-4 py-2 flex text-xs font-semibold text-muted-foreground bg-muted/20 border-t">
-              <div className="w-[24%] text-left">Item</div>
-              <div className="w-[10%] text-right">Gauge Diff</div>
-              <div className="w-[13%] text-right">Today's Rate</div>
-              <div className="w-[13%] text-right">Sauda Rate</div>
-              <div className="w-[13%] text-right">Party Rate</div>
-              <div className="w-[13%] text-right">Available Qty</div>
-              <div className="w-[14%] text-right">Last Purchase</div>
-            </div>
-          </div>
+      {/* Main Dense Spreadsheet Grid */}
+      <div className="border rounded-md overflow-hidden bg-background shadow-xs">
+        <table className="w-full border-collapse text-left text-xs">
+          <thead className="bg-muted/70 sticky top-0 z-30 border-b">
+            <tr className="text-muted-foreground font-medium">
+              <th className="p-1.5 pl-3 w-[25%]">Item Details</th>
+              <th className="p-1.5 text-right w-[10%]">Gauge Diff</th>
+              <th className="p-1.5 text-right w-[13%] bg-primary/5 text-primary font-semibold">Today's Rate</th>
+              <th className="p-1.5 text-right w-[13%]">Sauda Rate</th>
+              <th className="p-1.5 text-right w-[13%]">Party Rate</th>
+              <th className="p-1.5 text-right w-[13%]">Available Stock</th>
+              <th className="p-1.5 text-right pr-3 w-[13%]">Last Rate</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {grouped.map(({ section, factory, top, rows }) => (
+              <useMemo key={section.id} rows={rows}>
+                {/* Section Context Header Strip */}
+                <tr className="bg-muted/30 font-medium group text-slate-700" id={`sec-${section.id}`}>
+                  <td colSpan={7} className="p-1.5 pl-3 border-y bg-slate-50/70">
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-foreground text-sm">{section.name}</span>
+                        <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                          (<Factory className="h-3 w-3 inline" /> {factory?.name}: {((factory?.basic_rate ?? 0) + rateOffset)} + {section.adder} adder)
+                        </span>
+                      </div>
+                      
+                      {/* Integrated Sauda Selector Dropdown inside row divider */}
+                      {factory && allOpenSaudas.length > 0 && (
+                        <div className="flex items-center gap-1.5 text-[11px]" onClick={(e) => e.stopPropagation()}>
+                          <span className="text-muted-foreground font-normal">Active Sauda:</span>
+                          <Select value={pickedSauda[factory.id] ?? top?.id ?? ""} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
+                            <SelectTrigger className="h-5 w-56 text-[11px] px-1.5 py-0 bg-background"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {allOpenSaudas.map((o) => (
+                                <SelectItem key={o.id} value={o.id} className="text-[11px]">{o.party} — b:{o.basic} ({o.pending}T rem)</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                </tr>
 
-          {/* Product Data Rows */}
-          <CardContent className="p-0">
-            <div className="divide-y text-sm">
-              {rows.map((r) => (
-                <div key={r.id} className="flex px-3 md:px-4 py-3 items-center hover:bg-muted/10 transition-colors">
-                  <div className="w-[24%] text-left font-medium pr-2 break-words">{r.name}</div>
-                  <div className="w-[10%] text-right text-muted-foreground">{r.gauge_diff}</div>
-                  <div className="w-[13%] text-right font-mono text-foreground">{r.today.toFixed(0)}</div>
-                  <div className="w-[13%] text-right font-mono text-foreground">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</div>
-                  <div className="w-[13%] text-right font-mono text-foreground">{r.party.toFixed(0)}</div>
-                  <div className="w-[13%] text-right text-foreground">{Number(r.available_qty).toFixed(2)}</div>
-                  <div className="w-[14%] text-right text-muted-foreground">{r.last_purchase_rate ?? "—"}</div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button size="icon" className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg z-50"><List className="h-6 w-6" /></Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" side="top" className="max-h-96 overflow-y-auto w-64">
-          <DropdownMenuLabel>Jump to category</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {grouped.map(({ section, factory }) => (
-            <DropdownMenuItem key={section.id} onSelect={() => document.getElementById(`section-${section.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-              <div className="flex flex-col"><span className="font-medium">{section.name}</span><span className="text-xs text-muted-foreground">{factory?.name}</span></div>
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+                {/* Dense Item Rows */}
+                {rows.map((r) => (
+                  <tr key={r.id} className="hover:bg-slate-50/60 transition-colors group">
+                    <td className="p-1.5 pl-3 font-medium text-slate-900">{r.name}</td>
+                    <td className="p-1.5 text-right text-muted-foreground font-mono">{r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff}</td>
+                    <td className="p-1.5 text-right font-mono font-bold text-primary bg-primary/[0.02]">{r.today.toFixed(0)}</td>
+                    <td className="p-1.5 text-right font-mono text-slate-700">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
+                    <td className="p-1.5 text-right font-mono text-slate-700">{r.party.toFixed(0)}</td>
+                    <td className="p-1.5 text-right font-semibold text-slate-900 font-mono">{Number(r.available_qty).toFixed(1)} <span className="text-[10px] text-muted-foreground font-normal">MT</span></td>
+                    <td className="p-1.5 text-right pr-3 font-mono text-muted-foreground">{r.last_purchase_rate ?? "—"}</td>
+                  </tr>
+                ))}
+              </useMemo>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
