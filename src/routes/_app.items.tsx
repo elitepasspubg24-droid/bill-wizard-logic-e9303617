@@ -79,11 +79,14 @@ function ItemsPage() {
   }, [factories.data, sections.data, items.data, chosenByFactory, q]);
 
   const handleExportCSV = () => {
-    let csvContent = "data:text/csv;charset=utf-8,Section,Item,Stock Qty,Last Purchase Rate\r\n";
+    let csvContent = "data:text/csv;charset=utf-8,";
     grouped.forEach(({ section, rows }) => {
+      csvContent += `SECTION: ${section.name.toUpperCase()}\r\n`;
+      csvContent += "Item,Stock Qty,Last Purchase Rate\r\n";
       rows.forEach((r) => {
-        csvContent += `"${section.name}","${r.name}",${Number(r.available_qty).toFixed(2)},"${r.last_purchase_rate ?? "—"}"\r\n`;
+        csvContent += `"${r.name}",${Number(r.available_qty).toFixed(2)},"${r.last_purchase_rate ?? "—"}"\r\n`;
       });
+      csvContent += "\r\n\r\n";
     });
     const link = document.createElement("a");
     link.setAttribute("href", encodeURI(csvContent));
@@ -98,10 +101,11 @@ function ItemsPage() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-2xl font-bold">Items</h2>
+          <p className="text-sm text-muted-foreground">Sauda Rate = top-pending sauda basic (per factory) + section adder + gauge diff.</p>
         </div>
         <div className="flex gap-2">
             <Input placeholder="Search item…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" />
-            <Button onClick={handleExportCSV} variant="outline"><FileDown className="h-4 w-4 mr-2" /> Export</Button>
+            <Button onClick={handleExportCSV} variant="outline"><FileDown className="h-4 w-4 mr-2" /> Export CSV</Button>
         </div>
       </div>
 
@@ -109,9 +113,9 @@ function ItemsPage() {
         const factoryOpenSaudas = factory ? (openSaudasByFactory.get(factory.id) ?? []) : [];
         return (
           <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20">
-            <CardHeader className="sticky top-14 z-10 bg-card border-b">
+            <CardHeader className="border-b bg-muted/20">
               <CardTitle className="text-base flex flex-wrap items-center justify-between gap-2">
-                <span>{section.name} <span className="text-xs font-normal text-muted-foreground">({factory?.name})</span></span>
+                <span>{section.name} <span className="text-xs font-normal text-muted-foreground">({factory?.name} {factory?.basic_rate} + {section.adder} adder)</span></span>
                 {factory && factoryOpenSaudas.length > 0 && (
                   <Select value={pickedSauda[factory.id] ?? factoryOpenSaudas[0].id} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
                     <SelectTrigger className="h-8 w-64 text-xs"><SelectValue /></SelectTrigger>
@@ -128,11 +132,11 @@ function ItemsPage() {
                   <tr>
                     <th className="p-3">Item</th>
                     <th className="p-3 text-right">Gauge Diff</th>
-                    <th className="p-3 text-right">Today</th>
-                    <th className="p-3 text-right">Sauda</th>
-                    <th className="p-3 text-right">Party</th>
-                    <th className="p-3 text-right">Qty</th>
-                    <th className="p-3 text-right">Last</th>
+                    <th className="p-3 text-right">Today's Rate</th>
+                    <th className="p-3 text-right">Sauda Rate</th>
+                    <th className="p-3 text-right">Party Rate</th>
+                    <th className="p-3 text-right">Available Qty</th>
+                    <th className="p-3 text-right">Last Purchase</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -141,7 +145,7 @@ function ItemsPage() {
                       <td className="p-3 font-medium">{r.name}</td>
                       <td className="p-3 text-right text-muted-foreground">{r.gauge_diff}</td>
                       <td className="p-3 text-right font-mono">{r.today.toFixed(0)}</td>
-                      <td className="p-3 text-right font-mono">{r.sauda?.toFixed(0) ?? "—"}</td>
+                      <td className="p-3 text-right font-mono">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
                       <td className="p-3 text-right font-mono">{r.party.toFixed(0)}</td>
                       <td className="p-3 text-right">{Number(r.available_qty).toFixed(2)}</td>
                       <td className="p-3 text-right">{r.last_purchase_rate ?? "—"}</td>
@@ -153,12 +157,14 @@ function ItemsPage() {
           </Card>
         );
       })}
-      
+
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button size="icon" className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg z-50"><List className="h-6 w-6" /></Button>
+          <Button size="icon" className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg"><List className="h-6 w-6" /></Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" side="top" className="w-64">
+          <DropdownMenuLabel>Jump to category</DropdownMenuLabel>
+          <DropdownMenuSeparator />
           {grouped.map(({ section }) => (
             <DropdownMenuItem key={section.id} onSelect={() => document.getElementById(`section-${section.id}`)?.scrollIntoView({ behavior: "smooth" })}>
               {section.name}
