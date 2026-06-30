@@ -125,7 +125,7 @@ function ItemsPage() {
 
       {grouped.map(({ section, factory, top, rows }) => (
         <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20">
-          <CardHeader className="sticky top-14 z-20 bg-card border-b">
+          <CardHeader className="border-b bg-card">
             <CardTitle className="text-base flex flex-wrap items-center justify-between gap-2">
               <span>{section.name} <span className="text-xs font-normal text-muted-foreground">({factory?.name} {factory?.basic_rate} + {section.adder} adder{top ? ` · sauda ${top.basic} from ${top.party} (${top.pending} pending)` : " · no pending sauda"})</span></span>
               {factory && allOpenSaudas.length > 0 && (
@@ -144,29 +144,29 @@ function ItemsPage() {
               )}
             </CardTitle>
           </CardHeader>
-          <CardContent className="overflow-x-auto">
+          <CardContent className="overflow-x-auto p-0">
             <table className="w-full text-sm">
-              <thead className="sticky top-[112px] z-10 bg-card text-left text-muted-foreground shadow-[inset_0_-1px_0_0_hsl(var(--border))]">
+              <thead className="bg-muted/50 text-left text-muted-foreground border-b">
                 <tr>
-                  <th className="p-2 font-medium">Item</th>
-                  <th className="p-2 font-medium text-right">Gauge Diff</th>
-                  <th className="p-2 font-medium text-right">Today's Rate</th>
-                  <th className="p-2 font-medium text-right">Sauda Rate</th>
-                  <th className="p-2 font-medium text-right">Party Rate</th>
-                  <th className="p-2 font-medium text-right">Available Qty</th>
-                  <th className="p-2 font-medium text-right">Last Purchase</th>
+                  <th className="p-3 font-medium">Item</th>
+                  <th className="p-3 font-medium text-right">Gauge Diff</th>
+                  <th className="p-3 font-medium text-right">Today's Rate</th>
+                  <th className="p-3 font-medium text-right">Sauda Rate</th>
+                  <th className="p-3 font-medium text-right">Party Rate</th>
+                  <th className="p-3 font-medium text-right">Available Qty</th>
+                  <th className="p-3 font-medium text-right">Last Purchase</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.id} className="border-b last:border-0">
-                    <td className="p-2 font-medium bg-card">{r.name}</td>
-                    <td className="p-2 text-right text-muted-foreground bg-card">{r.gauge_diff}</td>
-                    <td className="p-2 text-right font-mono bg-card">{r.today.toFixed(0)}</td>
-                    <td className="p-2 text-right font-mono bg-card">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
-                    <td className="p-2 text-right font-mono bg-card">{r.party.toFixed(0)}</td>
-                    <td className="p-2 text-right bg-card">{Number(r.available_qty).toFixed(2)}</td>
-                    <td className="p-2 text-right bg-card">{r.last_purchase_rate ?? "—"}</td>
+                  <tr key={r.id} className="border-b last:border-0 hover:bg-muted/20">
+                    <td className="p-3 font-medium">{r.name}</td>
+                    <td className="p-3 text-right text-muted-foreground">{r.gauge_diff}</td>
+                    <td className="p-3 text-right font-mono">{r.today.toFixed(0)}</td>
+                    <td className="p-3 text-right font-mono">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
+                    <td className="p-3 text-right font-mono">{r.party.toFixed(0)}</td>
+                    <td className="p-3 text-right">{Number(r.available_qty).toFixed(2)}</td>
+                    <td className="p-3 text-right">{r.last_purchase_rate ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
