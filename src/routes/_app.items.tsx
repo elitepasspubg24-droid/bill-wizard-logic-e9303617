@@ -14,7 +14,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { List } from "lucide-react";
+import { List, FileDown } from "lucide-react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 export const Route = createFileRoute("/_app/items")({
   component: ItemsPage,
@@ -94,6 +96,43 @@ function ItemsPage() {
     }).filter((g) => g.rows.length > 0);
   }, [factories.data, sections.data, items.data, chosenByFactory, q]);
 
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+    const today = new Date().toLocaleDateString();
+    
+    doc.setFontSize(14);
+    doc.text(`Stock & Purchase Rate Report - ${today}`, 14, 15);
+    
+    let startY = 25;
+    
+    grouped.forEach(({ section, factory, rows }) => {
+      if (rows.length === 0) return;
+      
+      // Add section header
+      doc.setFontSize(11);
+      doc.text(`${section.name} (${factory?.name ?? "Unknown"})`, 14, startY);
+      
+      // Generate the 3-column table
+      autoTable(doc, {
+        startY: startY + 4,
+        head: [['Item', 'Stock Qty', 'Last Purchase Rate']],
+        body: rows.map(r => [
+          r.name,
+          Number(r.available_qty).toFixed(2),
+          r.last_purchase_rate ?? "—"
+        ]),
+        theme: 'grid',
+        headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0] },
+        styles: { fontSize: 9 },
+        margin: { left: 14, right: 14 },
+      });
+      
+      // Update Y position for the next section, adding a little padding
+      startY = (doc as any).lastAutoTable.finalY + 12;
+    });
+    
+    doc.save(`Stock_Report_${today.replace(/\//g, "-")}.pdf`);
+  };
 
   return (
     <div className="space-y-4">
@@ -101,107 +140,3 @@ function ItemsPage() {
         <div>
           <h2 className="text-2xl font-bold">Items</h2>
           <p className="text-sm text-muted-foreground">
-            Sauda Rate = top-pending sauda basic (per factory) + section adder + gauge diff.
-          </p>
-        </div>
-        <Input placeholder="Search item…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" />
-      </div>
-
-      {grouped.map(({ section, factory, top, rows }) => {
-        return (
-        <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20">
-          <CardHeader className="sticky top-14 z-10 bg-card border-b">
-            <CardTitle className="text-base flex flex-wrap items-center justify-between gap-2">
-              <span>
-                {section.name}{" "}
-                <span className="text-xs font-normal text-muted-foreground">
-                  ({factory?.name} {factory?.basic_rate} + {section.adder} adder
-                  {top ? ` · sauda ${top.basic} from ${top.party} (${top.pending} pending)` : " · no pending sauda"})
-                </span>
-              </span>
-              {factory && allOpenSaudas.length > 0 && (
-                <div className="flex items-center gap-2 text-xs font-normal">
-                  <span className="text-muted-foreground">Sauda:</span>
-                  <Select
-                    value={pickedSauda[factory.id] ?? top?.id ?? ""}
-                    onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}
-                  >
-                    <SelectTrigger className="h-7 w-72 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {allOpenSaudas.map((o) => {
-                        const fName = factories.data?.find((f) => f.id === o.factory_id)?.name ?? "Unknown";
-                        return (
-                          <SelectItem key={o.id} value={o.id} className="text-xs">
-                            {o.party} ({fName}) — basic {o.basic} ({o.pending} pending)
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b text-left text-muted-foreground">
-                <tr>
-                  <th className="p-2">Item</th>
-                  <th className="p-2 text-right">Gauge Diff</th>
-                  <th className="p-2 text-right">Today's Rate</th>
-                  <th className="p-2 text-right">Sauda Rate</th>
-                  <th className="p-2 text-right">Party Rate</th>
-                  <th className="p-2 text-right">Available Qty</th>
-                  <th className="p-2 text-right">Last Purchase</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id} className="border-b last:border-0">
-                    <td className="p-2 font-medium">{r.name}</td>
-                    <td className="p-2 text-right text-muted-foreground">{r.gauge_diff}</td>
-                    <td className="p-2 text-right font-mono">{r.today.toFixed(0)}</td>
-                    <td className="p-2 text-right font-mono">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
-                    <td className="p-2 text-right font-mono">{r.party.toFixed(0)}</td>
-                    <td className="p-2 text-right">{Number(r.available_qty).toFixed(2)}</td>
-                    <td className="p-2 text-right">{r.last_purchase_rate ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-        );
-      })}
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            size="icon"
-            className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg z-50"
-            aria-label="Jump to category"
-          >
-            <List className="h-6 w-6" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" side="top" className="max-h-96 overflow-y-auto w-64">
-          <DropdownMenuLabel>Jump to category</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {grouped.map(({ section, factory }) => (
-            <DropdownMenuItem
-              key={section.id}
-              onSelect={() => {
-                document.getElementById(`section-${section.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-              }}
-            >
-              <div className="flex flex-col">
-                <span className="font-medium">{section.name}</span>
-                <span className="text-xs text-muted-foreground">{factory?.name}</span>
-              </div>
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-  );
-}
