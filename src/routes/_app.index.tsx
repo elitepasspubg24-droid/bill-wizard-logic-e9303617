@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { RotateCcw } from "lucide-react";
 
 export const Route = createFileRoute("/_app/")({
   component: RatesPage,
@@ -30,6 +31,31 @@ function RatesPage() {
       setFactoryRates(initial);
     }
   }, [factories.data]);
+
+  // Adjusts all currently displayed factory input fields by a given number
+  const adjustAllRates = (amount: number) => {
+    setFactoryRates((prev) => {
+      const next: Record<string, string> = { ...prev };
+      (factories.data ?? []).forEach((f) => {
+        const currentVal = Number(prev[f.id]) || Number(f.basic_rate) || 0;
+        next[f.id] = String(currentVal + amount);
+      });
+      return next;
+    });
+    toast.success(`Adjusted all factories by ${amount > 0 ? `+${amount}` : amount}`);
+  };
+
+  // Resets inputs back to their loaded database values
+  const resetAllRates = () => {
+    if (factories.data) {
+      const initial: Record<string, string> = {};
+      for (const f of factories.data) {
+        initial[f.id] = String(f.basic_rate);
+      }
+      setFactoryRates(initial);
+      toast.info("Reset inputs to saved rates");
+    }
+  };
 
   const saveAllFactories = useMutation({
     mutationFn: async () => {
@@ -64,8 +90,24 @@ function RatesPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex flex-wrap items-center justify-between gap-3">
-            <span>Factory Basic Rates</span>
+          <CardTitle className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
+              <span>Factory Basic Rates</span>
+              
+              {/* Global Multi-Factory Quick Adjuster Panel */}
+              <div className="flex items-center gap-1 border rounded-lg p-1 bg-muted/40 font-normal">
+                <span className="text-xs font-semibold px-2 text-muted-foreground">Bulk Shift:</span>
+                <button type="button" className="h-7 px-2 text-xs rounded bg-background border border-red-200 text-red-600 hover:bg-red-50 font-medium transition-colors" onClick={() => adjustAllRates(-200)}>-200</button>
+                <button type="button" className="h-7 px-2 text-xs rounded bg-background border border-red-100 text-red-500 hover:bg-red-50 font-medium transition-colors" onClick={() => adjustAllRates(-100)}>-100</button>
+                <button type="button" className="h-7 px-2 text-xs rounded bg-background border border-emerald-100 text-emerald-500 hover:bg-emerald-50 font-medium transition-colors" onClick={() => adjustAllRates(100)}>+100</button>
+                <button type="button" className="h-7 px-2 text-xs rounded bg-background border border-emerald-200 text-emerald-600 hover:bg-emerald-50 font-medium transition-colors" onClick={() => adjustAllRates(200)}>+200</button>
+                <button type="button" className="h-7 px-2 text-xs rounded text-muted-foreground hover:text-foreground flex items-center gap-1 px-1.5 transition-colors" onClick={resetAllRates}>
+                  <RotateCcw className="h-3 w-3" />
+                  Reset
+                </button>
+              </div>
+            </div>
+
             <Button size="sm" onClick={() => saveAllFactories.mutate()} disabled={saveAllFactories.isPending}>
               {saveAllFactories.isPending ? "Saving…" : "Save all"}
             </Button>
@@ -107,7 +149,6 @@ function SectionsCard({ sections, factories, onSaved }: { sections: any[]; facto
       const next: Record<string, RowState> = {};
       for (const s of sections) {
         const existing = prev[s.id];
-        // party_basic = todayBasic + adder + pAdder  →  pAdder = party_basic - todayBasic - adder
         const factory = factories.find((f: any) => f.id === s.factory_id);
         const todayBasic = Number(factory?.basic_rate ?? 0);
         const derivedPartyAdder = Number(s.party_basic) - todayBasic - Number(s.adder);
