@@ -124,15 +124,23 @@ function ItemsPage() {
       </div>
 
       {grouped.map(({ section, factory, top, rows }) => (
-        <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20">
-          <CardHeader className="border-b bg-card">
-            <CardTitle className="text-base flex flex-wrap items-center justify-between gap-2">
-              <span>{section.name} <span className="text-xs font-normal text-muted-foreground">({factory?.name} {factory?.basic_rate} + {section.adder} adder{top ? ` · sauda ${top.basic} from ${top.party} (${top.pending} pending)` : " · no pending sauda"})</span></span>
+        <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20 overflow-visible">
+          {/* Merged Header Component: Stays sticky at the top together */}
+          <div className="sticky top-14 z-20 bg-card border-b shadow-sm">
+            {/* Section Name & Sauda Dropdown */}
+            <div className="p-3 md:p-4 pb-2 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-base font-bold text-foreground">
+                {section.name}{" "}
+                <span className="text-xs font-normal text-muted-foreground">
+                  ({factory?.name} {factory?.basic_rate} + {section.adder} adder
+                  {top ? ` · sauda ${top.basic} from ${top.party} (${top.pending} pending)` : " · no pending sauda"})
+                </span>
+              </h3>
               {factory && allOpenSaudas.length > 0 && (
                 <div className="flex items-center gap-2 text-xs font-normal">
                   <span className="text-muted-foreground">Sauda:</span>
                   <Select value={pickedSauda[factory.id] ?? top?.id ?? ""} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
-                    <SelectTrigger className="h-7 w-72 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="h-7 w-64 md:w-72 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {allOpenSaudas.map((o) => {
                         const fName = factories.data?.find((f) => f.id === o.factory_id)?.name ?? "Unknown";
@@ -142,35 +150,35 @@ function ItemsPage() {
                   </Select>
                 </div>
               )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="overflow-x-auto p-0">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50 text-left text-muted-foreground border-b">
-                <tr>
-                  <th className="p-3 font-medium">Item</th>
-                  <th className="p-3 font-medium text-right">Gauge Diff</th>
-                  <th className="p-3 font-medium text-right">Today's Rate</th>
-                  <th className="p-3 font-medium text-right">Sauda Rate</th>
-                  <th className="p-3 font-medium text-right">Party Rate</th>
-                  <th className="p-3 font-medium text-right">Available Qty</th>
-                  <th className="p-3 font-medium text-right">Last Purchase</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id} className="border-b last:border-0 hover:bg-muted/20">
-                    <td className="p-3 font-medium">{r.name}</td>
-                    <td className="p-3 text-right text-muted-foreground">{r.gauge_diff}</td>
-                    <td className="p-3 text-right font-mono">{r.today.toFixed(0)}</td>
-                    <td className="p-3 text-right font-mono">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
-                    <td className="p-3 text-right font-mono">{r.party.toFixed(0)}</td>
-                    <td className="p-3 text-right">{Number(r.available_qty).toFixed(2)}</td>
-                    <td className="p-3 text-right">{r.last_purchase_rate ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            </div>
+            
+            {/* Table Column Labels Row */}
+            <div className="px-3 md:px-4 py-2 flex text-xs font-semibold text-muted-foreground bg-muted/20 border-t">
+              <div className="w-[24%] text-left">Item</div>
+              <div className="w-[10%] text-right">Gauge Diff</div>
+              <div className="w-[13%] text-right">Today's Rate</div>
+              <div className="w-[13%] text-right">Sauda Rate</div>
+              <div className="w-[13%] text-right">Party Rate</div>
+              <div className="w-[13%] text-right">Available Qty</div>
+              <div className="w-[14%] text-right">Last Purchase</div>
+            </div>
+          </div>
+
+          {/* Product Data Rows */}
+          <CardContent className="p-0">
+            <div className="divide-y text-sm">
+              {rows.map((r) => (
+                <div key={r.id} className="flex px-3 md:px-4 py-3 items-center hover:bg-muted/10 transition-colors">
+                  <div className="w-[24%] text-left font-medium pr-2 break-words">{r.name}</div>
+                  <div className="w-[10%] text-right text-muted-foreground">{r.gauge_diff}</div>
+                  <div className="w-[13%] text-right font-mono text-foreground">{r.today.toFixed(0)}</div>
+                  <div className="w-[13%] text-right font-mono text-foreground">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</div>
+                  <div className="w-[13%] text-right font-mono text-foreground">{r.party.toFixed(0)}</div>
+                  <div className="w-[13%] text-right text-foreground">{Number(r.available_qty).toFixed(2)}</div>
+                  <div className="w-[14%] text-right text-muted-foreground">{r.last_purchase_rate ?? "—"}</div>
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
       ))}
