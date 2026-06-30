@@ -137,13 +137,13 @@ function ItemsPage() {
   <table className="border-collapse text-left text-[11px]">
     <thead className="bg-muted/70 sticky top-0 z-10 border-b">
       <tr className="text-muted-foreground font-semibold">
-  <th className="p-2 pl-3 w-24">Item Name</th>
-  <th className="p-2 text-right w-11">Gauge</th>
-  <th className="p-2 text-right w-14 bg-primary/5 text-primary font-bold">Today</th>
-  <th className="p-2 text-right w-14">Sauda</th>
-  <th className="p-2 text-right w-14">Party</th>
-  <th className="p-2 text-right w-14">Stock</th>
-  <th className="p-2 text-right pr-3 w-14">Last</th>
+  <th className="p-2 pl-3 w-20">Item Name</th>
+  <th className="p-2 text-right w-9">Gauge</th>
+  <th className="p-2 text-right w-12 bg-primary/5 text-primary font-bold">Today</th>
+  <th className="p-2 text-right w-12">Sauda</th>
+  <th className="p-2 text-right w-12">Party</th>
+  <th className="p-2 text-right w-12">Stock</th>
+  <th className="p-2 text-right pr-3 w-12">Last</th>
 </tr>
     </thead>
     <tbody className="divide-y">
