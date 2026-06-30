@@ -134,16 +134,19 @@ function ItemsPage() {
       
 {/* 📱 MOBILE VIEW: Compact Continuous Spreadsheet Matrix */}
 <div className="block md:hidden border rounded-lg overflow-x-auto bg-background shadow-sm">
-  <table className="table-fixed w-max border-collapse text-left text-[11px]">
+  <table
+    style={{ tableLayout: "fixed", width: "max-content" }}
+    className="border-collapse text-left text-[11px]"
+  >
     <thead className="bg-muted/70 sticky top-0 z-10 border-b">
       <tr className="text-muted-foreground font-semibold">
-        <th className="p-2 pl-3 w-[72px]">Item Name</th>
-        <th className="p-2 text-right w-[38px]">Gauge</th>
-        <th className="p-2 text-right w-[46px] bg-primary/5 text-primary font-bold">Today</th>
-        <th className="p-2 text-right w-[46px]">Sauda</th>
-        <th className="p-2 text-right w-[46px]">Party</th>
-        <th className="p-2 text-right w-[50px]">Stock</th>
-        <th className="p-2 text-right pr-3 w-[50px]">Last</th>
+        <th style={{ width: 72 }} className="p-2 pl-3">Item Name</th>
+        <th style={{ width: 38 }} className="p-2 text-right">Gauge</th>
+        <th style={{ width: 46 }} className="p-2 text-right bg-primary/5 text-primary font-bold">Today</th>
+        <th style={{ width: 46 }} className="p-2 text-right">Sauda</th>
+        <th style={{ width: 46 }} className="p-2 text-right">Party</th>
+        <th style={{ width: 50 }} className="p-2 text-right">Stock</th>
+        <th style={{ width: 50 }} className="p-2 text-right pr-3">Last</th>
       </tr>
     </thead>
     <tbody className="divide-y">
