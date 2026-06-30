@@ -137,14 +137,14 @@ function ItemsPage() {
   <table className="border-collapse text-left text-[11px]">
     <thead className="bg-muted/70 sticky top-0 z-10 border-b">
       <tr className="text-muted-foreground font-semibold">
-        <th className="p-2 pl-3 w-32">Item Name</th>
-        <th className="p-2 text-right w-12">Gauge</th>
-        <th className="p-2 text-right w-16 bg-primary/5 text-primary font-bold">Today</th>
-        <th className="p-2 text-right w-16">Sauda</th>
-        <th className="p-2 text-right w-16">Party</th>
-        <th className="p-2 text-right w-16">Stock</th>
-        <th className="p-2 text-right pr-3 w-16">Last</th>
-      </tr>
+  <th className="p-2 pl-3 w-24">Item Name</th>
+  <th className="p-2 text-right w-11">Gauge</th>
+  <th className="p-2 text-right w-14 bg-primary/5 text-primary font-bold">Today</th>
+  <th className="p-2 text-right w-14">Sauda</th>
+  <th className="p-2 text-right w-14">Party</th>
+  <th className="p-2 text-right w-14">Stock</th>
+  <th className="p-2 text-right pr-3 w-14">Last</th>
+</tr>
     </thead>
     <tbody className="divide-y">
       {grouped.map(({ section, factory, top, rows }) => (
