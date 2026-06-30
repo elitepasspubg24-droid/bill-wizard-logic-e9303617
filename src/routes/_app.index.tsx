@@ -19,6 +19,40 @@ function RatesPage() {
   const factories = useQuery({ queryKey: ["factories"], queryFn: fetchFactories });
   const sections = useQuery({ queryKey: ["sections"], queryFn: fetchSections });
 
+  const [factoryRates, setFactoryRates] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (factories.data) {
+      const initial: Record<string, string> = {};
+      for (const f of factories.data) {
+        initial[f.id] = String(f.basic_rate);
+      }
+      setFactoryRates(initial);
+    }
+  }, [factories.data]);
+
+  const saveAllFactories = useMutation({
+    mutationFn: async () => {
+      const failures: string[] = [];
+      for (const f of factories.data ?? []) {
+        const val = Number(factoryRates[f.id]);
+        if (isNaN(val) || val === Number(f.basic_rate)) continue; // Skip unchanged or invalid
+
+        const { error } = await supabase
+          .from("factories")
+          .update({ basic_rate: val, updated_at: new Date().toISOString() })
+          .eq("id", f.id);
+        if (error) failures.push(`${f.name}: ${error.message}`);
+      }
+      if (failures.length) throw new Error(failures.join(" | "));
+    },
+    onSuccess: () => {
+      toast.success("All factory rates updated");
+      qc.invalidateQueries({ queryKey: ["factories"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   return (
     <div className="space-y-6">
       <div>
@@ -29,10 +63,26 @@ function RatesPage() {
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Factory Basic Rates</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="flex flex-wrap items-center justify-between gap-3">
+            <span>Factory Basic Rates</span>
+            <Button size="sm" onClick={() => saveAllFactories.mutate()} disabled={saveAllFactories.isPending}>
+              {saveAllFactories.isPending ? "Saving…" : "Save all"}
+            </Button>
+          </CardTitle>
+        </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {factories.data?.map((f) => (
-            <FactoryRow key={f.id} factory={f} onSaved={() => qc.invalidateQueries({ queryKey: ["factories"] })} />
+            <div key={f.id} className="border rounded-md p-3">
+              <Label className="text-xs">{f.name}</Label>
+              <div className="flex gap-2 mt-1">
+                <Input 
+                  type="number" 
+                  value={factoryRates[f.id] ?? ""} 
+                  onChange={(e) => setFactoryRates(prev => ({ ...prev, [f.id]: e.target.value }))} 
+                />
+              </div>
+            </div>
           ))}
         </CardContent>
       </Card>
@@ -42,31 +92,6 @@ function RatesPage() {
         factories={factories.data ?? []}
         onSaved={() => qc.invalidateQueries({ queryKey: ["sections"] })}
       />
-    </div>
-  );
-}
-
-function FactoryRow({ factory, onSaved }: { factory: any; onSaved: () => void }) {
-  const [v, setV] = useState(String(factory.basic_rate));
-  useEffect(() => setV(String(factory.basic_rate)), [factory.basic_rate]);
-  const mut = useMutation({
-    mutationFn: async () => {
-      const { error } = await supabase
-        .from("factories")
-        .update({ basic_rate: Number(v), updated_at: new Date().toISOString() })
-        .eq("id", factory.id);
-      if (error) throw error;
-    },
-    onSuccess: () => { toast.success(`${factory.name} updated`); onSaved(); },
-    onError: (e: any) => toast.error(e.message),
-  });
-  return (
-    <div className="border rounded-md p-3">
-      <Label className="text-xs">{factory.name}</Label>
-      <div className="flex gap-2 mt-1">
-        <Input type="number" value={v} onChange={(e) => setV(e.target.value)} />
-        <Button size="sm" onClick={() => mut.mutate()} disabled={mut.isPending}>Save</Button>
-      </div>
     </div>
   );
 }
@@ -194,5 +219,3 @@ function SectionsCard({ sections, factories, onSaved }: { sections: any[]; facto
     </Card>
   );
 }
-
-
