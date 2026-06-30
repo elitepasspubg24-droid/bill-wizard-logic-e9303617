@@ -14,7 +14,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { List } from "lucide-react";
+import { List, FileDown } from "lucide-react";
 
 export const Route = createFileRoute("/_app/items")({
   component: ItemsPage,
@@ -27,37 +27,33 @@ function ItemsPage() {
   const items = useQuery({ queryKey: ["items"], queryFn: fetchItems });
   const saudas = useQuery({ queryKey: ["saudas"], queryFn: fetchSaudas });
   const [q, setQ] = useState("");
-  // factoryId -> selected sauda id ("" = default top-pending)
   const [pickedSauda, setPickedSauda] = useState<Record<string, string>>({});
 
-  // All open saudas with pending qty, grouped by factory
-  const openSaudasByFactory = useMemo(() => {
-    const map = new Map<string, any[]>();
-    if (!saudas.data) return map;
+  const allOpenSaudas = useMemo(() => {
+    const list: any[] = [];
+    if (!saudas.data) return list;
     for (const s of saudas.data as any[]) {
       if (!s.factory_id || s.status === "done") continue;
       const itemsTotal = (s.sauda_items ?? []).reduce((a: number, r: any) => a + Number(r.qty || 0), 0);
       const total = Number(s.total_qty || 0) || itemsTotal;
       const pending = Math.max(0, total - Number(s.lifted_qty || 0));
       if (pending <= 0) continue;
-      const arr = map.get(s.factory_id) ?? [];
-      arr.push({ id: s.id, basic: Number(s.sauda_basic), party: s.party_name, pending });
-      map.set(s.factory_id, arr);
+      list.push({ id: s.id, basic: Number(s.sauda_basic), party: s.party_name, pending, factory_id: s.factory_id });
     }
-    // sort each factory by pending desc
-    for (const [k, arr] of map) arr.sort((a, b) => b.pending - a.pending);
-    return map;
+    return list.sort((a, b) => b.pending - a.pending);
   }, [saudas.data]);
 
   const chosenByFactory = useMemo(() => {
-    const map = new Map<string, { basic: number; party: string; pending: number; id: string }>();
-    for (const [fid, list] of openSaudasByFactory) {
-      const pickId = pickedSauda[fid];
-      const picked = (pickId && list.find((x) => x.id === pickId)) || list[0];
-      if (picked) map.set(fid, picked);
+    const map = new Map<string, { basic: number; party: string; pending: number; id: string; factory_id: string }>();
+    if (!factories.data) return map;
+    for (const f of factories.data) {
+      const pickId = pickedSauda[f.id];
+      const factoryDefault = allOpenSaudas.find((x) => x.factory_id === f.id);
+      const picked = (pickId && allOpenSaudas.find((x) => x.id === pickId)) || factoryDefault || allOpenSaudas[0];
+      if (picked) map.set(f.id, picked);
     }
     return map;
-  }, [openSaudasByFactory, pickedSauda]);
+  }, [factories.data, allOpenSaudas, pickedSauda]);
 
   const grouped = useMemo(() => {
     if (!sections.data || !items.data || !factories.data) return [];
@@ -67,7 +63,7 @@ function ItemsPage() {
       const baseToday = (f?.basic_rate ?? 0) + Number(s.adder);
       const top = chosenByFactory.get(s.factory_id);
       const baseSauda = top ? top.basic + Number(s.adder) : null;
-      const baseParty = Number(s.party_basic); // party_basic already = todayBasic + adder + party_adder
+      const baseParty = Number(s.party_basic);
       const rows = items
         .data!.filter((i) => i.section_id === s.id)
         .filter((i) => !q || i.name.toLowerCase().includes(q.toLowerCase()))
@@ -81,6 +77,23 @@ function ItemsPage() {
     }).filter((g) => g.rows.length > 0);
   }, [factories.data, sections.data, items.data, chosenByFactory, q]);
 
+  const handleExportCSV = () => {
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "Section,Item,Stock Qty,Last Purchase Rate\r\n";
+    grouped.forEach(({ section, rows }) => {
+      rows.forEach((r) => {
+        const row = [`"${section.name}"`, `"${r.name}"`, Number(r.available_qty).toFixed(2), `"${r.last_purchase_rate ?? "—"}"`];
+        csvContent += row.join(",") + "\r\n";
+      });
+    });
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "Stock_Report.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
     <div className="space-y-4">
@@ -91,36 +104,30 @@ function ItemsPage() {
             Sauda Rate = top-pending sauda basic (per factory) + section adder + gauge diff.
           </p>
         </div>
-        <Input placeholder="Search item…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" />
+        <div className="flex items-center gap-2">
+          <Input placeholder="Search item…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" />
+          <Button onClick={handleExportCSV} variant="outline" className="gap-2">
+            <FileDown className="h-4 w-4" />
+            Export CSV
+          </Button>
+        </div>
       </div>
 
-      {grouped.map(({ section, factory, top, rows }) => {
-        const factoryOpenSaudas = factory ? (openSaudasByFactory.get(factory.id) ?? []) : [];
-        return (
+      {grouped.map(({ section, factory, top, rows }) => (
         <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20">
-          <CardHeader className="sticky top-14 z-10 bg-card border-b">
+          <CardHeader className="sticky top-14 z-20 bg-card border-b">
             <CardTitle className="text-base flex flex-wrap items-center justify-between gap-2">
-              <span>
-                {section.name}{" "}
-                <span className="text-xs font-normal text-muted-foreground">
-                  ({factory?.name} {factory?.basic_rate} + {section.adder} adder
-                  {top ? ` · sauda ${top.basic} from ${top.party} (${top.pending} pending)` : " · no pending sauda"})
-                </span>
-              </span>
-              {factory && factoryOpenSaudas.length > 0 && (
+              <span>{section.name} <span className="text-xs font-normal text-muted-foreground">({factory?.name} {factory?.basic_rate} + {section.adder} adder{top ? ` · sauda ${top.basic} from ${top.party} (${top.pending} pending)` : " · no pending sauda"})</span></span>
+              {factory && allOpenSaudas.length > 0 && (
                 <div className="flex items-center gap-2 text-xs font-normal">
                   <span className="text-muted-foreground">Sauda:</span>
-                  <Select
-                    value={pickedSauda[factory.id] ?? factoryOpenSaudas[0].id}
-                    onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}
-                  >
-                    <SelectTrigger className="h-7 w-64 text-xs"><SelectValue /></SelectTrigger>
+                  <Select value={pickedSauda[factory.id] ?? top?.id ?? ""} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
+                    <SelectTrigger className="h-7 w-72 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {factoryOpenSaudas.map((o) => (
-                        <SelectItem key={o.id} value={o.id} className="text-xs">
-                          {o.party} — basic {o.basic} ({o.pending} pending)
-                        </SelectItem>
-                      ))}
+                      {allOpenSaudas.map((o) => {
+                        const fName = factories.data?.find((f) => f.id === o.factory_id)?.name ?? "Unknown";
+                        return <SelectItem key={o.id} value={o.id} className="text-xs">{o.party} ({fName}) — basic {o.basic} ({o.pending} pending)</SelectItem>;
+                      })}
                     </SelectContent>
                   </Select>
                 </div>
@@ -129,60 +136,45 @@ function ItemsPage() {
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="text-left text-muted-foreground">
+              <thead className="sticky top-[112px] z-10 bg-card text-left text-muted-foreground shadow-[inset_0_-1px_0_0_hsl(var(--border))]">
                 <tr>
-                  <th className="sticky top-[108px] z-10 bg-card p-2 border-b">Item</th>
-                  <th className="sticky top-[108px] z-10 bg-card p-2 border-b text-right">Gauge Diff</th>
-                  <th className="sticky top-[108px] z-10 bg-card p-2 border-b text-right">Today's Rate</th>
-                  <th className="sticky top-[108px] z-10 bg-card p-2 border-b text-right">Sauda Rate</th>
-                  <th className="sticky top-[108px] z-10 bg-card p-2 border-b text-right">Party Rate</th>
-                  <th className="sticky top-[108px] z-10 bg-card p-2 border-b text-right">Available Qty</th>
-                  <th className="sticky top-[108px] z-10 bg-card p-2 border-b text-right">Last Purchase</th>
+                  <th className="p-2 font-medium">Item</th>
+                  <th className="p-2 font-medium text-right">Gauge Diff</th>
+                  <th className="p-2 font-medium text-right">Today's Rate</th>
+                  <th className="p-2 font-medium text-right">Sauda Rate</th>
+                  <th className="p-2 font-medium text-right">Party Rate</th>
+                  <th className="p-2 font-medium text-right">Available Qty</th>
+                  <th className="p-2 font-medium text-right">Last Purchase</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id} className="border-b last:border-0">
-                    <td className="p-2 font-medium">{r.name}</td>
-                    <td className="p-2 text-right text-muted-foreground">{r.gauge_diff}</td>
-                    <td className="p-2 text-right font-mono">{r.today.toFixed(0)}</td>
-                    <td className="p-2 text-right font-mono">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
-                    <td className="p-2 text-right font-mono">{r.party.toFixed(0)}</td>
-                    <td className="p-2 text-right">{Number(r.available_qty).toFixed(2)}</td>
-                    <td className="p-2 text-right">{r.last_purchase_rate ?? "—"}</td>
+                    <td className="p-2 font-medium bg-card">{r.name}</td>
+                    <td className="p-2 text-right text-muted-foreground bg-card">{r.gauge_diff}</td>
+                    <td className="p-2 text-right font-mono bg-card">{r.today.toFixed(0)}</td>
+                    <td className="p-2 text-right font-mono bg-card">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
+                    <td className="p-2 text-right font-mono bg-card">{r.party.toFixed(0)}</td>
+                    <td className="p-2 text-right bg-card">{Number(r.available_qty).toFixed(2)}</td>
+                    <td className="p-2 text-right bg-card">{r.last_purchase_rate ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </CardContent>
         </Card>
-        );
-      })}
+      ))}
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button
-            size="icon"
-            className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg z-50"
-            aria-label="Jump to category"
-          >
-            <List className="h-6 w-6" />
-          </Button>
+          <Button size="icon" className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg z-50"><List className="h-6 w-6" /></Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" side="top" className="max-h-96 overflow-y-auto w-64">
           <DropdownMenuLabel>Jump to category</DropdownMenuLabel>
           <DropdownMenuSeparator />
           {grouped.map(({ section, factory }) => (
-            <DropdownMenuItem
-              key={section.id}
-              onSelect={() => {
-                document.getElementById(`section-${section.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-              }}
-            >
-              <div className="flex flex-col">
-                <span className="font-medium">{section.name}</span>
-                <span className="text-xs text-muted-foreground">{factory?.name}</span>
-              </div>
+            <DropdownMenuItem key={section.id} onSelect={() => document.getElementById(`section-${section.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+              <div className="flex flex-col"><span className="font-medium">{section.name}</span><span className="text-xs text-muted-foreground">{factory?.name}</span></div>
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
