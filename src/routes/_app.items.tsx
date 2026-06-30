@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { fetchFactories, fetchSections, fetchItems, fetchSaudas } from "@/lib/queries";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -77,36 +77,6 @@ function ItemsPage() {
     }).filter((g) => g.rows.length > 0);
   }, [factories.data, sections.data, items.data, chosenByFactory, q]);
  
-  // The CardHeader's height isn't constant — long section names, the
-  // wrapped "sauda" detail text, and the optional Sauda picker all change
-  // it per section. top-[112px] on the thead assumed a fixed height, which
-  // is why the column-label row could land mid-table instead of right
-  // under the header. This measures the real height for each section.
-  const [headerHeights, setHeaderHeights] = useState<Record<string, number>>({});
-  const headerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
- 
-  useEffect(() => {
-    const observer = new ResizeObserver((entries) => {
-      setHeaderHeights((prev) => {
-        const next = { ...prev };
-        let changed = false;
-        for (const entry of entries) {
-          const target = entry.target as HTMLElement;
-          const id = target.dataset.sectionId;
-          if (!id) continue;
-          const h = Math.ceil(target.offsetHeight);
-          if (next[id] !== h) {
-            next[id] = h;
-            changed = true;
-          }
-        }
-        return changed ? next : prev;
-      });
-    });
-    headerRefs.current.forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
-  }, [grouped.map((g) => g.section.id).join(",")]);
- 
   const handleExportCSV = () => {
     let csvContent = "data:text/csv;charset=utf-8,";
     csvContent += "Section,Item,Stock Qty,Last Purchase Rate\r\n";
@@ -145,46 +115,38 @@ function ItemsPage() {
  
       {grouped.map(({ section, factory, top, rows }) => (
         <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20">
-          <CardHeader
-            ref={(el) => {
-              if (el) headerRefs.current.set(section.id, el);
-              else headerRefs.current.delete(section.id);
-            }}
-            data-section-id={section.id}
-            className="sticky top-14 z-20 bg-card border-b"
-          >
-            <CardTitle className="text-base flex flex-wrap items-center justify-between gap-2">
-              <span>{section.name} <span className="text-xs font-normal text-muted-foreground">({factory?.name} {factory?.basic_rate} + {section.adder} adder{top ? ` · sauda ${top.basic} from ${top.party} (${top.pending} pending)` : " · no pending sauda"})</span></span>
-              {factory && allOpenSaudas.length > 0 && (
-                <div className="flex items-center gap-2 text-xs font-normal">
-                  <span className="text-muted-foreground">Sauda:</span>
-                  <Select value={pickedSauda[factory.id] ?? top?.id ?? ""} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
-                    <SelectTrigger className="h-7 w-72 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {allOpenSaudas.map((o) => {
-                        const fName = factories.data?.find((f) => f.id === o.factory_id)?.name ?? "Unknown";
-                        return <SelectItem key={o.id} value={o.id} className="text-xs">{o.party} ({fName}) — basic {o.basic} ({o.pending} pending)</SelectItem>;
-                      })}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
+          <CardContent className="overflow-x-auto p-0">
             <table className="w-full text-sm">
-              <thead
-                className="sticky z-10 bg-card text-left text-muted-foreground shadow-[inset_0_-1px_0_0_hsl(var(--border))]"
-                style={{ top: 56 + (headerHeights[section.id] ?? 56) }}
-              >
+              <thead className="sticky top-14 z-20 text-left text-muted-foreground shadow-[inset_0_-1px_0_0_hsl(var(--border))]">
+                <tr className="border-b">
+                  <th colSpan={7} className="p-6 bg-card text-left align-top">
+                    <div className="text-base font-semibold text-foreground flex flex-wrap items-center justify-between gap-2">
+                      <span>{section.name} <span className="text-xs font-normal text-muted-foreground">({factory?.name} {factory?.basic_rate} + {section.adder} adder{top ? ` · sauda ${top.basic} from ${top.party} (${top.pending} pending)` : " · no pending sauda"})</span></span>
+                      {factory && allOpenSaudas.length > 0 && (
+                        <div className="flex items-center gap-2 text-xs font-normal">
+                          <span className="text-muted-foreground">Sauda:</span>
+                          <Select value={pickedSauda[factory.id] ?? top?.id ?? ""} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
+                            <SelectTrigger className="h-7 w-72 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {allOpenSaudas.map((o) => {
+                                const fName = factories.data?.find((f) => f.id === o.factory_id)?.name ?? "Unknown";
+                                return <SelectItem key={o.id} value={o.id} className="text-xs">{o.party} ({fName}) — basic {o.basic} ({o.pending} pending)</SelectItem>;
+                              })}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    </div>
+                  </th>
+                </tr>
                 <tr>
-                  <th className="p-2 font-medium">Item</th>
-                  <th className="p-2 font-medium text-right">Gauge Diff</th>
-                  <th className="p-2 font-medium text-right">Today's Rate</th>
-                  <th className="p-2 font-medium text-right">Sauda Rate</th>
-                  <th className="p-2 font-medium text-right">Party Rate</th>
-                  <th className="p-2 font-medium text-right">Available Qty</th>
-                  <th className="p-2 font-medium text-right">Last Purchase</th>
+                  <th className="p-2 font-medium bg-card">Item</th>
+                  <th className="p-2 font-medium text-right bg-card">Gauge Diff</th>
+                  <th className="p-2 font-medium text-right bg-card">Today's Rate</th>
+                  <th className="p-2 font-medium text-right bg-card">Sauda Rate</th>
+                  <th className="p-2 font-medium text-right bg-card">Party Rate</th>
+                  <th className="p-2 font-medium text-right bg-card">Available Qty</th>
+                  <th className="p-2 font-medium text-right bg-card">Last Purchase</th>
                 </tr>
               </thead>
               <tbody>
