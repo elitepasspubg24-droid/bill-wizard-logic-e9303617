@@ -80,12 +80,20 @@ function ItemsPage() {
   const handleExportCSV = () => {
     let csvContent = "data:text/csv;charset=utf-8,";
     csvContent += "Section,Item,Stock Qty,Last Purchase Rate\r\n";
+    
     grouped.forEach(({ section, rows }) => {
+      // Add a precise section header row
+      csvContent += `---,${section.name},---\r\n`;
+      
       rows.forEach((r) => {
         const row = [`"${section.name}"`, `"${r.name}"`, Number(r.available_qty).toFixed(2), `"${r.last_purchase_rate ?? "—"}"`];
         csvContent += row.join(",") + "\r\n";
       });
+      
+      // Add blank row for spacing[cite: 2]
+      csvContent += "\r\n";
     });
+    
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
