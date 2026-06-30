@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchFactories, fetchSections, fetchItems, fetchSaudas } from "@/lib/queries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,12 +15,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { List, FileDown } from "lucide-react";
-
+ 
 export const Route = createFileRoute("/_app/items")({
   component: ItemsPage,
   head: () => ({ meta: [{ title: "Items" }] }),
 });
-
+ 
 function ItemsPage() {
   const factories = useQuery({ queryKey: ["factories"], queryFn: fetchFactories });
   const sections = useQuery({ queryKey: ["sections"], queryFn: fetchSections });
@@ -28,7 +28,7 @@ function ItemsPage() {
   const saudas = useQuery({ queryKey: ["saudas"], queryFn: fetchSaudas });
   const [q, setQ] = useState("");
   const [pickedSauda, setPickedSauda] = useState<Record<string, string>>({});
-
+ 
   const allOpenSaudas = useMemo(() => {
     const list: any[] = [];
     if (!saudas.data) return list;
@@ -42,7 +42,7 @@ function ItemsPage() {
     }
     return list.sort((a, b) => b.pending - a.pending);
   }, [saudas.data]);
-
+ 
   const chosenByFactory = useMemo(() => {
     const map = new Map<string, { basic: number; party: string; pending: number; id: string; factory_id: string }>();
     if (!factories.data) return map;
@@ -54,7 +54,7 @@ function ItemsPage() {
     }
     return map;
   }, [factories.data, allOpenSaudas, pickedSauda]);
-
+ 
   const grouped = useMemo(() => {
     if (!sections.data || !items.data || !factories.data) return [];
     const fmap = new Map(factories.data.map((f) => [f.id, f]));
@@ -76,7 +76,37 @@ function ItemsPage() {
       return { section: s, factory: f, top, rows };
     }).filter((g) => g.rows.length > 0);
   }, [factories.data, sections.data, items.data, chosenByFactory, q]);
-
+ 
+  // The CardHeader's height isn't constant — long section names, the
+  // wrapped "sauda" detail text, and the optional Sauda picker all change
+  // it per section. top-[112px] on the thead assumed a fixed height, which
+  // is why the column-label row could land mid-table instead of right
+  // under the header. This measures the real height for each section.
+  const [headerHeights, setHeaderHeights] = useState<Record<string, number>>({});
+  const headerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+ 
+  useEffect(() => {
+    const observer = new ResizeObserver((entries) => {
+      setHeaderHeights((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        for (const entry of entries) {
+          const target = entry.target as HTMLElement;
+          const id = target.dataset.sectionId;
+          if (!id) continue;
+          const h = Math.ceil(target.offsetHeight);
+          if (next[id] !== h) {
+            next[id] = h;
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    });
+    headerRefs.current.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [grouped.map((g) => g.section.id).join(",")]);
+ 
   const handleExportCSV = () => {
     let csvContent = "data:text/csv;charset=utf-8,";
     csvContent += "Section,Item,Stock Qty,Last Purchase Rate\r\n";
@@ -94,7 +124,7 @@ function ItemsPage() {
     link.click();
     document.body.removeChild(link);
   };
-
+ 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -112,10 +142,17 @@ function ItemsPage() {
           </Button>
         </div>
       </div>
-
+ 
       {grouped.map(({ section, factory, top, rows }) => (
         <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20">
-          <CardHeader className="sticky top-14 z-20 bg-card border-b">
+          <CardHeader
+            ref={(el) => {
+              if (el) headerRefs.current.set(section.id, el);
+              else headerRefs.current.delete(section.id);
+            }}
+            data-section-id={section.id}
+            className="sticky top-14 z-20 bg-card border-b"
+          >
             <CardTitle className="text-base flex flex-wrap items-center justify-between gap-2">
               <span>{section.name} <span className="text-xs font-normal text-muted-foreground">({factory?.name} {factory?.basic_rate} + {section.adder} adder{top ? ` · sauda ${top.basic} from ${top.party} (${top.pending} pending)` : " · no pending sauda"})</span></span>
               {factory && allOpenSaudas.length > 0 && (
@@ -136,7 +173,10 @@ function ItemsPage() {
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="sticky top-[112px] z-10 bg-card text-left text-muted-foreground shadow-[inset_0_-1px_0_0_hsl(var(--border))]">
+              <thead
+                className="sticky z-10 bg-card text-left text-muted-foreground shadow-[inset_0_-1px_0_0_hsl(var(--border))]"
+                style={{ top: 56 + (headerHeights[section.id] ?? 56) }}
+              >
                 <tr>
                   <th className="p-2 font-medium">Item</th>
                   <th className="p-2 font-medium text-right">Gauge Diff</th>
@@ -164,7 +204,7 @@ function ItemsPage() {
           </CardContent>
         </Card>
       ))}
-
+ 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button size="icon" className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg z-50"><List className="h-6 w-6" /></Button>
@@ -182,3 +222,4 @@ function ItemsPage() {
     </div>
   );
 }
+ 
