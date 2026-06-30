@@ -110,7 +110,7 @@ function ItemsPage() {
       {grouped.map(({ section, factory, top, rows }) => {
         return (
         <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20">
-          <CardHeader className="sticky top-14 z-20 bg-card border-b">
+          <CardHeader className="sticky top-14 z-10 bg-card border-b">
             <CardTitle className="text-base flex flex-wrap items-center justify-between gap-2">
               <span>
                 {section.name}{" "}
@@ -144,27 +144,27 @@ function ItemsPage() {
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="sticky top-[112px] z-10 bg-card text-left text-muted-foreground shadow-[inset_0_-1px_0_0_hsl(var(--border))]">
+              <thead className="border-b text-left text-muted-foreground">
                 <tr>
-                  <th className="p-2 font-medium">Item</th>
-                  <th className="p-2 font-medium text-right">Gauge Diff</th>
-                  <th className="p-2 font-medium text-right">Today's Rate</th>
-                  <th className="p-2 font-medium text-right">Sauda Rate</th>
-                  <th className="p-2 font-medium text-right">Party Rate</th>
-                  <th className="p-2 font-medium text-right">Available Qty</th>
-                  <th className="p-2 font-medium text-right">Last Purchase</th>
+                  <th className="p-2">Item</th>
+                  <th className="p-2 text-right">Gauge Diff</th>
+                  <th className="p-2 text-right">Today's Rate</th>
+                  <th className="p-2 text-right">Sauda Rate</th>
+                  <th className="p-2 text-right">Party Rate</th>
+                  <th className="p-2 text-right">Available Qty</th>
+                  <th className="p-2 text-right">Last Purchase</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id} className="border-b last:border-0">
-                    <td className="p-2 font-medium bg-card">{r.name}</td>
-                    <td className="p-2 text-right text-muted-foreground bg-card">{r.gauge_diff}</td>
-                    <td className="p-2 text-right font-mono bg-card">{r.today.toFixed(0)}</td>
-                    <td className="p-2 text-right font-mono bg-card">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
-                    <td className="p-2 text-right font-mono bg-card">{r.party.toFixed(0)}</td>
-                    <td className="p-2 text-right bg-card">{Number(r.available_qty).toFixed(2)}</td>
-                    <td className="p-2 text-right bg-card">{r.last_purchase_rate ?? "—"}</td>
+                    <td className="p-2 font-medium">{r.name}</td>
+                    <td className="p-2 text-right text-muted-foreground">{r.gauge_diff}</td>
+                    <td className="p-2 text-right font-mono">{r.today.toFixed(0)}</td>
+                    <td className="p-2 text-right font-mono">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
+                    <td className="p-2 text-right font-mono">{r.party.toFixed(0)}</td>
+                    <td className="p-2 text-right">{Number(r.available_qty).toFixed(2)}</td>
+                    <td className="p-2 text-right">{r.last_purchase_rate ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
