@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { fetchFactories, fetchSections, fetchItems, fetchSaudas } from "@/lib/queries";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,12 +15,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { List, FileDown } from "lucide-react";
- 
+
 export const Route = createFileRoute("/_app/items")({
   component: ItemsPage,
   head: () => ({ meta: [{ title: "Items" }] }),
 });
- 
+
 function ItemsPage() {
   const factories = useQuery({ queryKey: ["factories"], queryFn: fetchFactories });
   const sections = useQuery({ queryKey: ["sections"], queryFn: fetchSections });
@@ -28,7 +28,7 @@ function ItemsPage() {
   const saudas = useQuery({ queryKey: ["saudas"], queryFn: fetchSaudas });
   const [q, setQ] = useState("");
   const [pickedSauda, setPickedSauda] = useState<Record<string, string>>({});
- 
+
   const allOpenSaudas = useMemo(() => {
     const list: any[] = [];
     if (!saudas.data) return list;
@@ -42,7 +42,7 @@ function ItemsPage() {
     }
     return list.sort((a, b) => b.pending - a.pending);
   }, [saudas.data]);
- 
+
   const chosenByFactory = useMemo(() => {
     const map = new Map<string, { basic: number; party: string; pending: number; id: string; factory_id: string }>();
     if (!factories.data) return map;
@@ -54,7 +54,7 @@ function ItemsPage() {
     }
     return map;
   }, [factories.data, allOpenSaudas, pickedSauda]);
- 
+
   const grouped = useMemo(() => {
     if (!sections.data || !items.data || !factories.data) return [];
     const fmap = new Map(factories.data.map((f) => [f.id, f]));
@@ -76,16 +76,26 @@ function ItemsPage() {
       return { section: s, factory: f, top, rows };
     }).filter((g) => g.rows.length > 0);
   }, [factories.data, sections.data, items.data, chosenByFactory, q]);
- 
+
   const handleExportCSV = () => {
     let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Section,Item,Stock Qty,Last Purchase Rate\r\n";
+    
     grouped.forEach(({ section, rows }) => {
+      csvContent += `SECTION: ${section.name.toUpperCase()}\r\n`;
+      csvContent += "Item,Stock Qty,Last Purchase Rate\r\n";
+      
       rows.forEach((r) => {
-        const row = [`"${section.name}"`, `"${r.name}"`, Number(r.available_qty).toFixed(2), `"${r.last_purchase_rate ?? "—"}"`];
+        const row = [
+          `"${r.name}"`, 
+          Number(r.available_qty).toFixed(2), 
+          `"${r.last_purchase_rate ?? "—"}"`
+        ];
         csvContent += row.join(",") + "\r\n";
       });
+      
+      csvContent += "\r\n\r\n";
     });
+    
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -94,7 +104,7 @@ function ItemsPage() {
     link.click();
     document.body.removeChild(link);
   };
- 
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -112,41 +122,39 @@ function ItemsPage() {
           </Button>
         </div>
       </div>
- 
+
       {grouped.map(({ section, factory, top, rows }) => (
         <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20">
-          <CardContent className="overflow-x-auto p-0">
+          <CardHeader className="sticky top-14 z-20 bg-card border-b">
+            <CardTitle className="text-base flex flex-wrap items-center justify-between gap-2">
+              <span>{section.name} <span className="text-xs font-normal text-muted-foreground">({factory?.name} {factory?.basic_rate} + {section.adder} adder{top ? ` · sauda ${top.basic} from ${top.party} (${top.pending} pending)` : " · no pending sauda"})</span></span>
+              {factory && allOpenSaudas.length > 0 && (
+                <div className="flex items-center gap-2 text-xs font-normal">
+                  <span className="text-muted-foreground">Sauda:</span>
+                  <Select value={pickedSauda[factory.id] ?? top?.id ?? ""} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
+                    <SelectTrigger className="h-7 w-72 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {allOpenSaudas.map((o) => {
+                        const fName = factories.data?.find((f) => f.id === o.factory_id)?.name ?? "Unknown";
+                        return <SelectItem key={o.id} value={o.id} className="text-xs">{o.party} ({fName}) — basic {o.basic} ({o.pending} pending)</SelectItem>;
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="sticky top-14 z-20 text-left text-muted-foreground shadow-[inset_0_-1px_0_0_hsl(var(--border))]">
-                <tr className="border-b">
-                  <th colSpan={7} className="p-6 bg-card text-left align-top">
-                    <div className="text-base font-semibold text-foreground flex flex-wrap items-center justify-between gap-2">
-                      <span>{section.name} <span className="text-xs font-normal text-muted-foreground">({factory?.name} {factory?.basic_rate} + {section.adder} adder{top ? ` · sauda ${top.basic} from ${top.party} (${top.pending} pending)` : " · no pending sauda"})</span></span>
-                      {factory && allOpenSaudas.length > 0 && (
-                        <div className="flex items-center gap-2 text-xs font-normal">
-                          <span className="text-muted-foreground">Sauda:</span>
-                          <Select value={pickedSauda[factory.id] ?? top?.id ?? ""} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
-                            <SelectTrigger className="h-7 w-72 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              {allOpenSaudas.map((o) => {
-                                const fName = factories.data?.find((f) => f.id === o.factory_id)?.name ?? "Unknown";
-                                return <SelectItem key={o.id} value={o.id} className="text-xs">{o.party} ({fName}) — basic {o.basic} ({o.pending} pending)</SelectItem>;
-                              })}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
-                    </div>
-                  </th>
-                </tr>
+              <thead className="sticky top-[112px] z-10 bg-card text-left text-muted-foreground shadow-[inset_0_-1px_0_0_hsl(var(--border))]">
                 <tr>
-                  <th className="p-2 font-medium bg-card">Item</th>
-                  <th className="p-2 font-medium text-right bg-card">Gauge Diff</th>
-                  <th className="p-2 font-medium text-right bg-card">Today's Rate</th>
-                  <th className="p-2 font-medium text-right bg-card">Sauda Rate</th>
-                  <th className="p-2 font-medium text-right bg-card">Party Rate</th>
-                  <th className="p-2 font-medium text-right bg-card">Available Qty</th>
-                  <th className="p-2 font-medium text-right bg-card">Last Purchase</th>
+                  <th className="p-2 font-medium">Item</th>
+                  <th className="p-2 font-medium text-right">Gauge Diff</th>
+                  <th className="p-2 font-medium text-right">Today's Rate</th>
+                  <th className="p-2 font-medium text-right">Sauda Rate</th>
+                  <th className="p-2 font-medium text-right">Party Rate</th>
+                  <th className="p-2 font-medium text-right">Available Qty</th>
+                  <th className="p-2 font-medium text-right">Last Purchase</th>
                 </tr>
               </thead>
               <tbody>
@@ -166,7 +174,7 @@ function ItemsPage() {
           </CardContent>
         </Card>
       ))}
- 
+
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button size="icon" className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg z-50"><List className="h-6 w-6" /></Button>
@@ -184,4 +192,3 @@ function ItemsPage() {
     </div>
   );
 }
- 
