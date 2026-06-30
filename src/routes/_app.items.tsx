@@ -100,94 +100,61 @@ function ItemsPage() {
 
   return (
     <div className="w-full space-y-4">
-      {/* Dynamic Header Toolbar */}
       <div className="flex items-center justify-between gap-4 flex-wrap border-b pb-3">
-        <div>
-          <h2 className="text-xl md:text-2xl font-bold tracking-tight">Items Matrix</h2>
-          <p className="text-xs md:text-sm text-muted-foreground hidden sm:block">
-            Live calculations incorporating baseline offsets, section adders, and gauge variations.
-          </p>
-        </div>
-        
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1 border rounded-lg p-1 bg-muted/40 text-xs">
-            <span className="px-1.5 font-semibold text-muted-foreground">Shift Baseline:</span>
-            <button className="h-7 px-2 rounded bg-background border border-red-200 text-red-600 hover:bg-red-50 text-xs font-medium" onClick={() => setRateOffset(p => p - 100)}>-100</button>
-            <button className="h-7 px-2 rounded bg-background border border-emerald-200 text-emerald-600 hover:bg-emerald-50 text-xs font-medium" onClick={() => setRateOffset(p => p + 100)}>+100</button>
-            {rateOffset !== 0 && (
-              <button className="h-7 px-2 rounded bg-amber-50 border border-amber-200 text-amber-700 font-bold flex items-center gap-1" onClick={() => setRateOffset(0)}>
-                <RotateCcw className="h-3 w-3" /> Clr ({rateOffset > 0 ? `+${rateOffset}` : rateOffset})
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Input placeholder="Search item…" value={q} onChange={(e) => setQ(e.target.value)} className="w-36 md:w-48 h-9 text-sm" />
-            <Button onClick={handleExportCSV} variant="outline" size="sm" className="gap-2 h-9 text-xs">
-              <FileDown className="h-4 w-4" />
-              <span className="hidden sm:inline">Export</span>
-            </Button>
-          </div>
+        <h2 className="text-xl font-bold tracking-tight">Items Matrix</h2>
+        <div className="flex items-center gap-2">
+          <Input placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} className="w-32 h-8 text-xs" />
+          <Button onClick={handleExportCSV} variant="outline" size="sm" className="h-8 text-xs">Export</Button>
         </div>
       </div>
 
-      {/* 📱 MOBILE VIEW: Tight Density Matrix Layout */}
-      <div className="block md:hidden border rounded-lg overflow-hidden bg-background shadow-sm">
+      <div className="block md:hidden border rounded-lg overflow-hidden bg-background">
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left text-[10px] min-w-[480px]">
-            <thead className="bg-muted/70 border-b font-medium text-muted-foreground">
-              <tr>
-                <th className="p-1.5 pl-2.5 font-semibold text-left">Item Name</th>
-                <th className="p-1.5 text-right font-semibold w-12">Diff</th>
-                <th className="p-1.5 text-right font-semibold w-14 bg-primary/5 text-primary">Today</th>
-                <th className="p-1.5 text-right font-semibold w-14">Sauda</th>
-                <th className="p-1.5 text-right font-semibold w-14">Party</th>
-                <th className="p-1.5 text-right font-semibold w-14">Stock</th>
-                <th className="p-1.5 text-right pr-2.5 font-semibold w-14">Last</th>
+          <table className="w-full border-collapse text-[10px] min-w-[500px]">
+            <thead className="bg-muted/50 border-b">
+              <tr className="text-muted-foreground text-[9px]">
+                <th className="p-1.5 text-left w-[20%]">Item</th>
+                <th className="p-1.5 text-right w-[10%]">G</th>
+                <th className="p-1.5 text-right w-[14%]">Today</th>
+                <th className="p-1.5 text-right w-[14%]">Sauda</th>
+                <th className="p-1.5 text-right w-[14%]">Party</th>
+                <th className="p-1.5 text-right w-[14%]">Stk</th>
+                <th className="p-1.5 text-right w-[14%]">Lst</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {grouped.map(({ section, factory, top, rows }) => (
                 <tr key={section.id} className="contents">
-                  {/* Dense Integrated Section Row */}
-                  <tr className="bg-slate-50 border-y text-slate-800">
-                    <td colSpan={7} className="p-1.5 pl-2.5">
-                      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <span className="text-[11px] font-bold text-foreground">{section.name}</span>
-                          <span className="text-[9px] text-muted-foreground ml-1">
-                            ({factory?.name}: {(factory?.basic_rate ?? 0) + rateOffset} + {section.adder})
-                          </span>
+                  <tr className="bg-slate-50 border-y">
+                    <td colSpan={7} className="p-1.5">
+                      <div className="font-bold">{section.name}</div>
+                      {factory && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <Select value={pickedSauda[factory.id] ?? top?.id ?? ""} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
+                            <SelectTrigger className="h-5 text-[9px] w-full px-1 bg-white border border-slate-200">
+                              <SelectValue placeholder="Select Sauda" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {allOpenSaudas.map((o) => (
+                                <SelectItem key={o.id} value={o.id} className="text-[10px]">
+                                  {o.party} - B:{o.basic} ({o.pending}T)
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
-                        
-                        {/* Inline Mobile Sauda Picker */}
-                        {factory && allOpenSaudas.length > 0 && (
-                          <div className="flex items-center gap-1 bg-background px-1.5 py-0.5 border rounded w-fit max-w-[200px]">
-                            <span className="text-[9px] text-muted-foreground">Sauda:</span>
-                            <Select value={pickedSauda[factory.id] ?? top?.id ?? ""} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
-                              <SelectTrigger className="h-4 text-[9px] border-none shadow-none p-0 focus:ring-0 bg-transparent w-auto"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                {allOpenSaudas.map((o) => (
-                                  <SelectItem key={o.id} value={o.id} className="text-[10px]">{o.party} ({o.pending}T)</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        )}
-                      </div>
+                      )}
                     </td>
                   </tr>
-
-                  {/* Core Matrix Data Rows */}
                   {rows.map((r) => (
-                    <tr key={r.id} className="hover:bg-muted/5">
-                      <td className="p-1.5 pl-2.5 font-medium text-foreground whitespace-nowrap">{r.name}</td>
-                      <td className="p-1.5 text-right font-mono text-muted-foreground">{r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff}</td>
-                      <td className="p-1.5 text-right font-mono font-bold text-primary bg-primary/[0.01]">{r.today.toFixed(0)}</td>
-                      <td className="p-1.5 text-right font-mono text-foreground">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
-                      <td className="p-1.5 text-right font-mono text-foreground">{r.party.toFixed(0)}</td>
-                      <td className="p-1.5 text-right font-mono font-medium text-foreground">{Number(r.available_qty).toFixed(1)}t</td>
-                      <td className="p-1.5 text-right pr-2.5 font-mono text-muted-foreground">{r.last_purchase_rate ?? "—"}</td>
+                    <tr key={r.id} className="hover:bg-muted/20">
+                      <td className="p-1.5 text-xs font-medium leading-tight whitespace-normal break-words">{r.name}</td>
+                      <td className="p-1.5 text-right font-mono">{r.gauge_diff}</td>
+                      <td className="p-1.5 text-right font-mono font-bold text-primary">{r.today.toFixed(0)}</td>
+                      <td className="p-1.5 text-right font-mono">{r.sauda?.toFixed(0) ?? "-"}</td>
+                      <td className="p-1.5 text-right font-mono">{r.party.toFixed(0)}</td>
+                      <td className="p-1.5 text-right font-mono">{Number(r.available_qty).toFixed(1)}</td>
+                      <td className="p-1.5 text-right font-mono">{r.last_purchase_rate ?? "-"}</td>
                     </tr>
                   ))}
                 </tr>
@@ -197,82 +164,31 @@ function ItemsPage() {
         </div>
       </div>
 
-      {/* 💻 WEB VIEW: Traditional Spacious Card Layout */}
       <div className="hidden md:block space-y-4">
-        {grouped.map(({ section, factory, top, rows }) => (
-          <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20 overflow-visible">
-            <div className="sticky top-14 z-20 bg-card border-b shadow-xs rounded-t-lg">
-              <div className="p-4 pb-2 flex flex-wrap items-center justify-between gap-3">
-                <h3 className="text-base font-bold text-foreground flex items-center gap-2">
-                  {section.name}
-                  <span className="text-xs font-normal text-muted-foreground flex items-center gap-1">
-                    (<Factory className="h-3 w-3 inline" /> {factory?.name} {((factory?.basic_rate ?? 0) + rateOffset)} + {section.adder} adder)
-                  </span>
-                </h3>
-                {factory && allOpenSaudas.length > 0 && (
-                  <div className="flex items-center gap-2 text-xs font-normal">
-                    <span className="text-muted-foreground">Selected Sauda:</span>
-                    <Select value={pickedSauda[factory.id] ?? top?.id ?? ""} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
-                      <SelectTrigger className="h-7 w-72 text-xs bg-background"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {allOpenSaudas.map((o) => (
-                          <SelectItem key={o.id} value={o.id} className="text-xs">{o.party} — basic {o.basic} ({o.pending} pending)</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </div>
-              
-              {/* Desktop Headers */}
-              <div className="px-4 py-2 flex text-xs font-semibold text-muted-foreground bg-muted/20 border-t">
-                <div className="w-[24%] text-left">Item Name</div>
-                <div className="w-[10%] text-right">Gauge Diff</div>
-                <div className="w-[13%] text-right">Today's Rate</div>
-                <div className="w-[13%] text-right">Sauda Rate</div>
-                <div className="w-[13%] text-right">Party Rate</div>
-                <div className="w-[13%] text-right">Available Qty</div>
-                <div className="w-[14%] text-right pr-1">Last Purchase</div>
-              </div>
+        {grouped.map(({ section, rows }) => (
+          <Card key={section.id} className="overflow-hidden">
+            <div className="bg-muted/20 p-3 font-bold border-b">{section.name}</div>
+            <div className="grid grid-cols-7 text-xs font-semibold p-2 border-b text-muted-foreground text-right">
+              <div className="text-left col-span-2">Item</div>
+              <div>Gauge</div>
+              <div>Today</div>
+              <div>Sauda</div>
+              <div>Party</div>
+              <div>Stock</div>
             </div>
-
-            <CardContent className="p-0">
-              <div className="divide-y text-sm">
-                {rows.map((r) => (
-                  <div key={r.id} className="flex px-4 py-2.5 items-center hover:bg-muted/10 transition-colors">
-                    <div className="w-[24%] text-left font-medium pr-2 text-slate-900">{r.name}</div>
-                    <div className="w-[10%] text-right text-muted-foreground font-mono">{r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff}</div>
-                    <div className="w-[13%] text-right font-mono font-bold text-primary">{r.today.toFixed(0)}</div>
-                    <div className="w-[13%] text-right font-mono text-slate-700">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</div>
-                    <div className="w-[13%] text-right font-mono text-slate-700">{r.party.toFixed(0)}</div>
-                    <div className="w-[13%] text-right text-slate-900 font-medium">{Number(r.available_qty).toFixed(2)} MT</div>
-                    <div className="w-[14%] text-right text-muted-foreground font-mono pr-1">{r.last_purchase_rate ?? "—"}</div>
-                  </div>
-                ))}
+            {rows.map((r) => (
+              <div key={r.id} className="grid grid-cols-7 p-2 text-sm border-b hover:bg-muted/10 text-right">
+                <div className="text-left col-span-2 font-medium truncate">{r.name}</div>
+                <div className="font-mono">{r.gauge_diff}</div>
+                <div className="font-mono font-bold text-primary">{r.today.toFixed(0)}</div>
+                <div className="font-mono">{r.sauda?.toFixed(0) ?? "-"}</div>
+                <div className="font-mono">{r.party.toFixed(0)}</div>
+                <div className="font-mono">{Number(r.available_qty).toFixed(2)}</div>
               </div>
-            </CardContent>
+            ))}
           </Card>
         ))}
       </div>
-
-      {/* Floating Navigator */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button size="icon" className="fixed bottom-6 right-6 h-12 w-12 rounded-full shadow-lg z-50"><List className="h-5 w-5" /></Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" side="top" className="max-h-80 overflow-y-auto w-60">
-          <DropdownMenuLabel className="text-xs">Jump to section</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {grouped.map(({ section, factory }) => (
-            <DropdownMenuItem key={section.id} onSelect={() => document.getElementById(`section-${section.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-              <div className="flex flex-col text-xs">
-                <span className="font-semibold">{section.name}</span>
-                <span className="text-[10px] text-muted-foreground">{factory?.name}</span>
-              </div>
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
     </div>
   );
 }
