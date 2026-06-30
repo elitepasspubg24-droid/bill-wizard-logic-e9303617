@@ -134,22 +134,19 @@ function ItemsPage() {
       
 {/* 📱 MOBILE VIEW: Compact Continuous Spreadsheet Matrix */}
 <div className="block md:hidden border rounded-lg overflow-x-auto bg-background shadow-sm">
-<table className="table-fixed w-max border-collapse text-left text-[11px]">
-  <thead className="bg-muted/70 sticky top-0 z-10 border-b">
-    <tr className="text-muted-foreground font-semibold">
-      <th className="p-2 pl-3 w-[72px]">Item Name</th>
-      <th className="p-2 text-right w-[38px]">Gauge</th>
-      <th className="p-2 text-right w-[46px] bg-primary/5 text-primary font-bold">Today</th>
-      <th className="p-2 text-right w-[46px]">Sauda</th>
-      <th className="p-2 text-right w-[46px]">Party</th>
-      <th className="p-2 text-right w-[50px]">Stock</th>
-      <th className="p-2 text-right pr-3 w-[50px]">Last</th>
-    </tr>
+  <table className="table-fixed w-max border-collapse text-left text-[11px]">
+    <thead className="bg-muted/70 sticky top-0 z-10 border-b">
+      <tr className="text-muted-foreground font-semibold">
+        <th className="p-2 pl-3 w-[72px]">Item Name</th>
+        <th className="p-2 text-right w-[38px]">Gauge</th>
+        <th className="p-2 text-right w-[46px] bg-primary/5 text-primary font-bold">Today</th>
+        <th className="p-2 text-right w-[46px]">Sauda</th>
+        <th className="p-2 text-right w-[46px]">Party</th>
+        <th className="p-2 text-right w-[50px]">Stock</th>
+        <th className="p-2 text-right pr-3 w-[50px]">Last</th>
+      </tr>
     </thead>
-  {/* tbody unchanged — keep your existing rows as-is */}
-
     <tbody className="divide-y">
-      </table>
       {grouped.map(({ section, factory, top, rows }) => (
         <tr key={section.id} className="contents">
           {/* Embedded Section Info Header Row */}
