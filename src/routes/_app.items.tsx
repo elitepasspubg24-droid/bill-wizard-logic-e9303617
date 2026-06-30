@@ -30,44 +30,56 @@ function ItemsPage() {
   // factoryId -> selected sauda id ("" = default top-pending)
   const [pickedSauda, setPickedSauda] = useState<Record<string, string>>({});
 
-  // All open saudas with pending qty, grouped by factory
-  const openSaudasByFactory = useMemo(() => {
-    const map = new Map<string, any[]>();
-    if (!saudas.data) return map;
+  // All open saudas with pending qty across ALL factories
+  const allOpenSaudas = useMemo(() => {
+    const list: any[] = [];
+    if (!saudas.data) return list;
+    
     for (const s of saudas.data as any[]) {
       if (!s.factory_id || s.status === "done") continue;
       const itemsTotal = (s.sauda_items ?? []).reduce((a: number, r: any) => a + Number(r.qty || 0), 0);
       const total = Number(s.total_qty || 0) || itemsTotal;
       const pending = Math.max(0, total - Number(s.lifted_qty || 0));
       if (pending <= 0) continue;
-      const arr = map.get(s.factory_id) ?? [];
-      arr.push({ id: s.id, basic: Number(s.sauda_basic), party: s.party_name, pending });
-      map.set(s.factory_id, arr);
+      
+      list.push({ 
+        id: s.id, 
+        basic: Number(s.sauda_basic), 
+        party: s.party_name, 
+        pending,
+        factory_id: s.factory_id 
+      });
     }
-    // sort each factory by pending desc
-    for (const [k, arr] of map) arr.sort((a, b) => b.pending - a.pending);
-    return map;
+    // sort overall by pending desc
+    return list.sort((a, b) => b.pending - a.pending);
   }, [saudas.data]);
 
   const chosenByFactory = useMemo(() => {
-    const map = new Map<string, { basic: number; party: string; pending: number; id: string }>();
-    for (const [fid, list] of openSaudasByFactory) {
-      const pickId = pickedSauda[fid];
-      const picked = (pickId && list.find((x) => x.id === pickId)) || list[0];
-      if (picked) map.set(fid, picked);
+    const map = new Map<string, { basic: number; party: string; pending: number; id: string; factory_id: string }>();
+    if (!factories.data) return map;
+    
+    for (const f of factories.data) {
+      const pickId = pickedSauda[f.id];
+      // Default to this factory's own top pending, if none exists, fallback to overall top pending
+      const factoryDefault = allOpenSaudas.find((x) => x.factory_id === f.id);
+      
+      const picked = (pickId && allOpenSaudas.find((x) => x.id === pickId)) || factoryDefault || allOpenSaudas[0];
+      if (picked) map.set(f.id, picked);
     }
     return map;
-  }, [openSaudasByFactory, pickedSauda]);
+  }, [factories.data, allOpenSaudas, pickedSauda]);
 
   const grouped = useMemo(() => {
     if (!sections.data || !items.data || !factories.data) return [];
     const fmap = new Map(factories.data.map((f) => [f.id, f]));
+    
     return sections.data.map((s) => {
       const f = fmap.get(s.factory_id);
       const baseToday = (f?.basic_rate ?? 0) + Number(s.adder);
       const top = chosenByFactory.get(s.factory_id);
       const baseSauda = top ? top.basic + Number(s.adder) : null;
       const baseParty = Number(s.party_basic); // party_basic already = todayBasic + adder + party_adder
+      
       const rows = items
         .data!.filter((i) => i.section_id === s.id)
         .filter((i) => !q || i.name.toLowerCase().includes(q.toLowerCase()))
@@ -77,6 +89,7 @@ function ItemsPage() {
           sauda: baseSauda === null ? null : baseSauda + Number(i.gauge_diff),
           party: baseParty + Number(i.gauge_diff),
         }));
+        
       return { section: s, factory: f, top, rows };
     }).filter((g) => g.rows.length > 0);
   }, [factories.data, sections.data, items.data, chosenByFactory, q]);
@@ -95,7 +108,6 @@ function ItemsPage() {
       </div>
 
       {grouped.map(({ section, factory, top, rows }) => {
-        const factoryOpenSaudas = factory ? (openSaudasByFactory.get(factory.id) ?? []) : [];
         return (
         <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20">
           <CardHeader className="sticky top-14 z-10 bg-card border-b">
@@ -107,20 +119,23 @@ function ItemsPage() {
                   {top ? ` · sauda ${top.basic} from ${top.party} (${top.pending} pending)` : " · no pending sauda"})
                 </span>
               </span>
-              {factory && factoryOpenSaudas.length > 0 && (
+              {factory && allOpenSaudas.length > 0 && (
                 <div className="flex items-center gap-2 text-xs font-normal">
                   <span className="text-muted-foreground">Sauda:</span>
                   <Select
-                    value={pickedSauda[factory.id] ?? factoryOpenSaudas[0].id}
+                    value={pickedSauda[factory.id] ?? top?.id ?? ""}
                     onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}
                   >
-                    <SelectTrigger className="h-7 w-64 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="h-7 w-72 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {factoryOpenSaudas.map((o) => (
-                        <SelectItem key={o.id} value={o.id} className="text-xs">
-                          {o.party} — basic {o.basic} ({o.pending} pending)
-                        </SelectItem>
-                      ))}
+                      {allOpenSaudas.map((o) => {
+                        const fName = factories.data?.find((f) => f.id === o.factory_id)?.name ?? "Unknown";
+                        return (
+                          <SelectItem key={o.id} value={o.id} className="text-xs">
+                            {o.party} ({fName}) — basic {o.basic} ({o.pending} pending)
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
                 </div>
