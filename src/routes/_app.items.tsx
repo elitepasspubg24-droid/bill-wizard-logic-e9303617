@@ -134,7 +134,7 @@ function ItemsPage() {
       
 {/* 📱 MOBILE VIEW: Compact Continuous Spreadsheet Matrix */}
 <div className="block md:hidden border rounded-lg overflow-x-auto bg-background shadow-sm">
- <table className="table-fixed border-collapse text-left text-[11px]">
+<table className="table-fixed w-max border-collapse text-left text-[11px]">
     <thead className="bg-muted/70 sticky top-0 z-10 border-b">
       <tr className="text-muted-foreground font-semibold">
   <th className="p-2 pl-3 w-25">Item Name</th>
