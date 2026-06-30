@@ -29,31 +29,32 @@ function ItemsPage() {
   const [q, setQ] = useState("");
   const [pickedSauda, setPickedSauda] = useState<Record<string, string>>({});
 
-  const allOpenSaudas = useMemo(() => {
-    const list: any[] = [];
-    if (!saudas.data) return list;
+  const openSaudasByFactory = useMemo(() => {
+    const map = new Map<string, any[]>();
+    if (!saudas.data) return map;
     for (const s of saudas.data as any[]) {
       if (!s.factory_id || s.status === "done") continue;
       const itemsTotal = (s.sauda_items ?? []).reduce((a: number, r: any) => a + Number(r.qty || 0), 0);
       const total = Number(s.total_qty || 0) || itemsTotal;
       const pending = Math.max(0, total - Number(s.lifted_qty || 0));
       if (pending <= 0) continue;
-      list.push({ id: s.id, basic: Number(s.sauda_basic), party: s.party_name, pending, factory_id: s.factory_id });
+      const arr = map.get(s.factory_id) ?? [];
+      arr.push({ id: s.id, basic: Number(s.sauda_basic), party: s.party_name, pending });
+      map.set(s.factory_id, arr);
     }
-    return list.sort((a, b) => b.pending - a.pending);
+    for (const [k, arr] of map) arr.sort((a, b) => b.pending - a.pending);
+    return map;
   }, [saudas.data]);
 
   const chosenByFactory = useMemo(() => {
-    const map = new Map<string, { basic: number; party: string; pending: number; id: string; factory_id: string }>();
-    if (!factories.data) return map;
-    for (const f of factories.data) {
-      const pickId = pickedSauda[f.id];
-      const factoryDefault = allOpenSaudas.find((x) => x.factory_id === f.id);
-      const picked = (pickId && allOpenSaudas.find((x) => x.id === pickId)) || factoryDefault || allOpenSaudas[0];
-      if (picked) map.set(f.id, picked);
+    const map = new Map<string, { basic: number; party: string; pending: number; id: string }>();
+    for (const [fid, list] of openSaudasByFactory) {
+      const pickId = pickedSauda[fid];
+      const picked = (pickId && list.find((x) => x.id === pickId)) || list[0];
+      if (picked) map.set(fid, picked);
     }
     return map;
-  }, [factories.data, allOpenSaudas, pickedSauda]);
+  }, [openSaudasByFactory, pickedSauda]);
 
   const grouped = useMemo(() => {
     if (!sections.data || !items.data || !factories.data) return [];
@@ -78,25 +79,14 @@ function ItemsPage() {
   }, [factories.data, sections.data, items.data, chosenByFactory, q]);
 
   const handleExportCSV = () => {
-    let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Section,Item,Stock Qty,Last Purchase Rate\r\n";
-    
+    let csvContent = "data:text/csv;charset=utf-8,Section,Item,Stock Qty,Last Purchase Rate\r\n";
     grouped.forEach(({ section, rows }) => {
-      // Add a precise section header row
-      csvContent += `---,${section.name},---\r\n`;
-      
       rows.forEach((r) => {
-        const row = [`"${section.name}"`, `"${r.name}"`, Number(r.available_qty).toFixed(2), `"${r.last_purchase_rate ?? "—"}"`];
-        csvContent += row.join(",") + "\r\n";
+        csvContent += `"${section.name}","${r.name}",${Number(r.available_qty).toFixed(2)},"${r.last_purchase_rate ?? "—"}"\r\n`;
       });
-      
-      // Add blank row for spacing[cite: 2]
-      csvContent += "\r\n";
     });
-    
-    const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
+    link.setAttribute("href", encodeURI(csvContent));
     link.setAttribute("download", "Stock_Report.csv");
     document.body.appendChild(link);
     link.click();
@@ -108,81 +98,70 @@ function ItemsPage() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-2xl font-bold">Items</h2>
-          <p className="text-sm text-muted-foreground">
-            Sauda Rate = top-pending sauda basic (per factory) + section adder + gauge diff.
-          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Input placeholder="Search item…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" />
-          <Button onClick={handleExportCSV} variant="outline" className="gap-2">
-            <FileDown className="h-4 w-4" />
-            Export CSV
-          </Button>
+        <div className="flex gap-2">
+            <Input placeholder="Search item…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" />
+            <Button onClick={handleExportCSV} variant="outline"><FileDown className="h-4 w-4 mr-2" /> Export</Button>
         </div>
       </div>
 
-      {grouped.map(({ section, factory, top, rows }) => (
-        <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20">
-          <CardHeader className="sticky top-14 z-20 bg-card border-b">
-            <CardTitle className="text-base flex flex-wrap items-center justify-between gap-2">
-              <span>{section.name} <span className="text-xs font-normal text-muted-foreground">({factory?.name} {factory?.basic_rate} + {section.adder} adder{top ? ` · sauda ${top.basic} from ${top.party} (${top.pending} pending)` : " · no pending sauda"})</span></span>
-              {factory && allOpenSaudas.length > 0 && (
-                <div className="flex items-center gap-2 text-xs font-normal">
-                  <span className="text-muted-foreground">Sauda:</span>
-                  <Select value={pickedSauda[factory.id] ?? top?.id ?? ""} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
-                    <SelectTrigger className="h-7 w-72 text-xs"><SelectValue /></SelectTrigger>
+      {grouped.map(({ section, factory, top, rows }) => {
+        const factoryOpenSaudas = factory ? (openSaudasByFactory.get(factory.id) ?? []) : [];
+        return (
+          <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20">
+            <CardHeader className="sticky top-14 z-10 bg-card border-b">
+              <CardTitle className="text-base flex flex-wrap items-center justify-between gap-2">
+                <span>{section.name} <span className="text-xs font-normal text-muted-foreground">({factory?.name})</span></span>
+                {factory && factoryOpenSaudas.length > 0 && (
+                  <Select value={pickedSauda[factory.id] ?? factoryOpenSaudas[0].id} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
+                    <SelectTrigger className="h-8 w-64 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {allOpenSaudas.map((o) => {
-                        const fName = factories.data?.find((f) => f.id === o.factory_id)?.name ?? "Unknown";
-                        return <SelectItem key={o.id} value={o.id} className="text-xs">{o.party} ({fName}) — basic {o.basic} ({o.pending} pending)</SelectItem>;
-                      })}
+                      {factoryOpenSaudas.map((o) => <SelectItem key={o.id} value={o.id} className="text-xs">{o.party} — basic {o.basic}</SelectItem>)}
                     </SelectContent>
                   </Select>
-                </div>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="sticky top-[112px] z-10 bg-card text-left text-muted-foreground shadow-[inset_0_-1px_0_0_hsl(var(--border))]">
-                <tr>
-                  <th className="p-2 font-medium">Item</th>
-                  <th className="p-2 font-medium text-right">Gauge Diff</th>
-                  <th className="p-2 font-medium text-right">Today's Rate</th>
-                  <th className="p-2 font-medium text-right">Sauda Rate</th>
-                  <th className="p-2 font-medium text-right">Party Rate</th>
-                  <th className="p-2 font-medium text-right">Available Qty</th>
-                  <th className="p-2 font-medium text-right">Last Purchase</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id} className="border-b last:border-0">
-                    <td className="p-2 font-medium bg-card">{r.name}</td>
-                    <td className="p-2 text-right text-muted-foreground bg-card">{r.gauge_diff}</td>
-                    <td className="p-2 text-right font-mono bg-card">{r.today.toFixed(0)}</td>
-                    <td className="p-2 text-right font-mono bg-card">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
-                    <td className="p-2 text-right font-mono bg-card">{r.party.toFixed(0)}</td>
-                    <td className="p-2 text-right bg-card">{Number(r.available_qty).toFixed(2)}</td>
-                    <td className="p-2 text-right bg-card">{r.last_purchase_rate ?? "—"}</td>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b bg-muted/50 text-left text-muted-foreground">
+                  <tr>
+                    <th className="p-3">Item</th>
+                    <th className="p-3 text-right">Gauge Diff</th>
+                    <th className="p-3 text-right">Today</th>
+                    <th className="p-3 text-right">Sauda</th>
+                    <th className="p-3 text-right">Party</th>
+                    <th className="p-3 text-right">Qty</th>
+                    <th className="p-3 text-right">Last</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      ))}
-
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="p-3 font-medium">{r.name}</td>
+                      <td className="p-3 text-right text-muted-foreground">{r.gauge_diff}</td>
+                      <td className="p-3 text-right font-mono">{r.today.toFixed(0)}</td>
+                      <td className="p-3 text-right font-mono">{r.sauda?.toFixed(0) ?? "—"}</td>
+                      <td className="p-3 text-right font-mono">{r.party.toFixed(0)}</td>
+                      <td className="p-3 text-right">{Number(r.available_qty).toFixed(2)}</td>
+                      <td className="p-3 text-right">{r.last_purchase_rate ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        );
+      })}
+      
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button size="icon" className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg z-50"><List className="h-6 w-6" /></Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" side="top" className="max-h-96 overflow-y-auto w-64">
-          <DropdownMenuLabel>Jump to category</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {grouped.map(({ section, factory }) => (
-            <DropdownMenuItem key={section.id} onSelect={() => document.getElementById(`section-${section.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-              <div className="flex flex-col"><span className="font-medium">{section.name}</span><span className="text-xs text-muted-foreground">{factory?.name}</span></div>
+        <DropdownMenuContent align="end" side="top" className="w-64">
+          {grouped.map(({ section }) => (
+            <DropdownMenuItem key={section.id} onSelect={() => document.getElementById(`section-${section.id}`)?.scrollIntoView({ behavior: "smooth" })}>
+              {section.name}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
