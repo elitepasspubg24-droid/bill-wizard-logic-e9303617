@@ -120,6 +120,70 @@ function ItemsPage() {
     document.body.removeChild(link);
   };
 
+  const formatCell = (r: any, key: ColKey): string => {
+    switch (key) {
+      case "gauge_diff": return r.gauge_diff > 0 ? `+${r.gauge_diff}` : String(r.gauge_diff);
+      case "today": return r.today.toFixed(0);
+      case "sauda": return r.sauda === null ? "—" : r.sauda.toFixed(0);
+      case "party": return r.party.toFixed(0);
+      case "available_qty": return `${Number(r.available_qty).toFixed(2)} MT`;
+      case "last_purchase_rate": return r.last_purchase_rate != null ? String(r.last_purchase_rate) : "—";
+    }
+  };
+
+  const handleExportPDF = () => {
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const selectedCols = ALL_COLS.filter((c) => pdfCols.includes(c.key));
+    const head = [["Item", ...selectedCols.map((c) => c.label)]];
+
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.text("Items Report", pageWidth / 2, 40, { align: "center" });
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(120);
+    doc.text(new Date().toLocaleString(), pageWidth / 2, 56, { align: "center" });
+    doc.setTextColor(0);
+
+    let cursorY = 78;
+    grouped.forEach(({ section, factory, rows }, idx) => {
+      if (idx > 0) cursorY += 18; // spacing between sections
+      if (cursorY > doc.internal.pageSize.getHeight() - 80) {
+        doc.addPage();
+        cursorY = 50;
+      }
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "bold");
+      doc.text(section.name, 40, cursorY);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(110);
+      if (factory) doc.text(`${factory.name}`, 40, cursorY + 13);
+      doc.setTextColor(0);
+      cursorY += 20;
+
+      const body = rows.map((r) => [r.name, ...selectedCols.map((c) => formatCell(r, c.key))]);
+      autoTable(doc, {
+        head,
+        body,
+        startY: cursorY,
+        margin: { left: 40, right: 40 },
+        styles: { fontSize: 10, cellPadding: 6, lineColor: [220, 220, 220], lineWidth: 0.5 },
+        headStyles: { fillColor: [240, 240, 240], textColor: 30, fontStyle: "bold" },
+        alternateRowStyles: { fillColor: [250, 250, 250] },
+        columnStyles: selectedCols.reduce((acc, _c, i) => {
+          acc[i + 1] = { halign: "right" };
+          return acc;
+        }, {} as Record<number, any>),
+        theme: "grid",
+      });
+      cursorY = (doc as any).lastAutoTable.finalY;
+    });
+
+    doc.save("Items_Report.pdf");
+  };
+
   return (
     <div className="w-full space-y-4">
       {/* Universal Sticky Control Heading Strip */}
