@@ -209,9 +209,47 @@ function ItemsPage() {
             <span>{isEditingGauges ? "Finish Editing" : "Edit Gauges"}</span>
           </Button>
 
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2 h-9 text-xs">
+                <FileText className="h-4 w-4" />
+                <span className="hidden sm:inline">PDF</span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-64">
+              <div className="space-y-3">
+                <div>
+                  <div className="text-sm font-semibold">Export as PDF</div>
+                  <div className="text-[11px] text-muted-foreground">Item name is always included.</div>
+                </div>
+                <div className="space-y-2">
+                  {ALL_COLS.map((c) => (
+                    <div key={c.key} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`pdfcol-${c.key}`}
+                        checked={pdfCols.includes(c.key)}
+                        onCheckedChange={(v) =>
+                          setPdfCols((prev) =>
+                            v ? [...prev, c.key] : prev.filter((k) => k !== c.key),
+                          )
+                        }
+                      />
+                      <Label htmlFor={`pdfcol-${c.key}`} className="text-xs font-normal cursor-pointer">
+                        {c.label}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+                <Button onClick={handleExportPDF} size="sm" className="w-full h-8 text-xs gap-2">
+                  <FileDown className="h-3.5 w-3.5" /> Download PDF
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
+
           <Button onClick={handleExportCSV} variant="outline" size="sm" className="gap-2 h-9 text-xs">
             <FileDown className="h-4 w-4" />
-            <span className="hidden sm:inline">Export</span>
+            <span className="hidden sm:inline">CSV</span>
           </Button>
         </div>
       </div>
