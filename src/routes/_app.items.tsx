@@ -131,56 +131,54 @@ function ItemsPage() {
           </div>
         </div>
       </div>
-      
-{/* 📱 MOBILE VIEW: Compact Continuous Spreadsheet Matrix */}
-<div className="block md:hidden border rounded-lg overflow-x-auto bg-background shadow-sm">
-  <table
-    style={{ tableLayout: "fixed", width: "max-content" }}
-    className="border-collapse text-left text-[11px]"
-  >
-    <thead className="bg-muted/70 sticky top-0 z-10 border-b">
-      <tr className="text-muted-foreground font-semibold">
-        <th style={{ width: 72 }} className="p-2 pl-3">Item Name</th>
-        <th style={{ width: 38 }} className="p-2 text-right">Gauge</th>
-        <th style={{ width: 46 }} className="p-2 text-right bg-primary/5 text-primary font-bold">Today</th>
-        <th style={{ width: 46 }} className="p-2 text-right">Sauda</th>
-        <th style={{ width: 46 }} className="p-2 text-right">Party</th>
-        <th style={{ width: 50 }} className="p-2 text-right">Stock</th>
-        <th style={{ width: 50 }} className="p-2 text-right pr-3">Last</th>
-      </tr>
-    </thead>
-    <tbody className="divide-y">
-      {grouped.map(({ section, factory, top, rows }) => (
-        <tr key={section.id} className="contents">
-          {/* Embedded Section Info Header Row */}
-          <tr className="bg-slate-50 font-bold border-y text-slate-800">
-            <td colSpan={7} className="p-2 pl-3">
-              <div className="flex flex-col gap-1">
-                <div className="text-xs font-bold text-foreground">{section.name}</div>
-                <div className="text-[10px] font-normal text-muted-foreground flex items-center gap-1 flex-wrap">
-                  <span>({factory?.name}: {(factory?.basic_rate ?? 0) + rateOffset} + {section.adder} add)</span>
-                  {top && <span className="text-emerald-700 font-medium">· Sauda: {top.party} ({top.pending}T)</span>}
-                </div>
-              </div>
-            </td>
-          </tr>
-          {/* Core Mobile Data Rows */}
-          {rows.map((r) => (
-            <tr key={r.id} className="hover:bg-muted/5">
-              <td className="p-2 pl-3 font-medium text-foreground break-words">{r.name}</td>
-              <td className="p-2 text-right font-mono text-muted-foreground">{r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff}</td>
-              <td className="p-2 text-right font-mono font-bold text-primary bg-primary/[0.01]">{r.today.toFixed(0)}</td>
-              <td className="p-2 text-right font-mono text-foreground">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
-              <td className="p-2 text-right font-mono text-foreground">{r.party.toFixed(0)}</td>
-              <td className="p-2 text-right font-mono font-semibold text-foreground">{Number(r.available_qty).toFixed(1)}t</td>
-              <td className="p-2 text-right pr-3 font-mono text-muted-foreground">{r.last_purchase_rate ?? "—"}</td>
+
+      {/* 📱 MOBILE VIEW: Compact Continuous Spreadsheet Matrix */}
+      <div className="block md:hidden border rounded-lg overflow-hidden bg-background shadow-sm">
+        <table className="w-full border-collapse text-left text-[11px] table-fixed">
+          <thead className="bg-muted/70 sticky top-0 z-10 border-b">
+            <tr className="text-muted-foreground font-semibold">
+              <th className="py-2 px-1 pl-2 w-[22%] text-left">Item</th>
+              <th className="py-2 px-1 text-right w-[10%]">±</th>
+              <th className="py-2 px-1 text-right w-[14%] bg-primary/5 text-primary font-bold">Today</th>
+              <th className="py-2 px-1 text-right w-[14%]">Sauda</th>
+              <th className="py-2 px-1 text-right w-[14%]">Party</th>
+              <th className="py-2 px-1 text-right w-[13%]">Stock</th>
+              <th className="py-2 px-1 text-right pr-2 w-[13%]">Last</th>
             </tr>
-          ))}
-        </tr>
-      ))}
-    </tbody>
-  </table>
-</div>
+          </thead>
+          <tbody className="divide-y">
+            {grouped.map(({ section, factory, top, rows }) => (
+              <tr key={section.id} className="contents">
+                {/* Embedded Section Info Header Row */}
+                <tr className="bg-slate-50 font-bold border-y text-slate-800">
+                  <td colSpan={7} className="py-1.5 px-1 pl-2">
+                    <div className="flex flex-col gap-0.5">
+                      <div className="text-xs font-bold text-foreground">{section.name}</div>
+                      <div className="text-[10px] font-normal text-muted-foreground flex items-center gap-1 flex-wrap">
+                        <span>({factory?.name}: {(factory?.basic_rate ?? 0) + rateOffset} + {section.adder} add)</span>
+                        {top && <span className="text-emerald-700 font-medium">· Sauda: {top.party} ({top.pending}T)</span>}
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+                {/* Core Mobile Data Rows */}
+                {rows.map((r) => (
+                  <tr key={r.id} className="hover:bg-muted/5">
+                    <td className="py-2 px-1 pl-2 font-medium text-foreground break-words">{r.name}</td>
+                    <td className="py-2 px-1 text-right font-mono text-muted-foreground whitespace-nowrap">{r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff}</td>
+                    <td className="py-2 px-1 text-right font-mono font-bold text-primary bg-primary/[0.01] whitespace-nowrap">{r.today.toFixed(0)}</td>
+                    <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
+                    <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.party.toFixed(0)}</td>
+                    <td className="py-2 px-1 text-right font-mono font-semibold text-foreground whitespace-nowrap">{Number(r.available_qty).toFixed(1)}t</td>
+                    <td className="py-2 px-1 text-right pr-2 font-mono text-muted-foreground whitespace-nowrap">{r.last_purchase_rate ?? "—"}</td>
+                  </tr>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
       {/* 💻 WEB VIEW: Spacious, High-Information Card System */}
       <div className="hidden md:block space-y-4">
         {grouped.map(({ section, factory, top, rows }) => (
