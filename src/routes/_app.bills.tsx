@@ -302,9 +302,19 @@ function BillsPage() {
     setBusy(true);
     try {
       const dataUrl = await fileToDataUrl(file);
-      const result = await extract({ data: { dataUrl, type } });
+      const sectionMap = new Map<string, string>(
+        (sections.data ?? []).map((s: any) => [s.id, s.name]),
+      );
+      const catalog = (items.data ?? []).map((it: any) => ({
+        id: it.id,
+        name: it.name,
+        section: it.section_id ? sectionMap.get(it.section_id) ?? null : null,
+      }));
+      const result = await extract({ data: { dataUrl, type, catalog } });
       setDraft(result);
-      setMatches(result.items.map((i) => autoMatch(i.raw_name)));
+      setMatches(
+        result.items.map((i) => i.matched_item_id ?? autoMatch(i.raw_name)),
+      );
       toast.success(`Extracted ${result.items.length} items`);
     } catch (e: any) {
       toast.error(e.message ?? "Extract failed");
