@@ -64,54 +64,51 @@ function ItemsPage() {
   const grouped = useMemo(() => {
     if (!sections.data || !items.data || !factories.data) return [];
     const fmap = new Map(factories.data.map((f) => [f.id, f]));
-    
+
     return sections.data.map((s) => {
-      // 1. Get Chosen Factory
+      // 1. Get chosen factory (from dropdown, else section's default factory)
       const activeTodayFactoryId = pickedTodayFactory[s.id] ?? s.factory_id;
-      const activeTodayFactory = fmap.get(activeTodayFactoryId);
+      const activeTodayFactory: any = fmap.get(activeTodayFactoryId);
       const activeFacBasic = Number(activeTodayFactory?.basic_rate ?? 0);
-      
-      // 2. Get That Factory's Adder (from the Sections table matching the chosen factory)
-      const activeSectionConfig = sections.data.find(
-        (sec) => sec.factory_id === activeTodayFactoryId && sec.name.trim().toLowerCase() === s.name.trim().toLowerCase()
-      ) || s;
-      const activeFacAdder = Number(activeSectionConfig.adder ?? 0);
-      
-      // 3. Compute Base Today Rate
+
+      // 2. Factory-level adder (now lives on factories table, NOT sections)
+      const activeFacAdder = Number(activeTodayFactory?.adder ?? 0);
+
+      // 3. Base Today Rate = Selected Factory Basic + Factory Adder
       const baseToday = activeFacBasic + activeFacAdder;
 
-      // Sauda & Party Logic
+      // Sauda & Party logic (party_basic still per-section)
       const topSauda = allOpenSaudas.find(so => so.id === pickedSauda[s.id] || so.factory_id === activeTodayFactoryId);
       const baseSauda = topSauda ? topSauda.basic + activeFacAdder : null;
-      const baseParty = Number(activeSectionConfig.party_basic ?? s.party_basic ?? 0);
+      const baseParty = Number(s.party_basic ?? 0);
 
       const rows = items.data!
         .filter((i) => i.section_id === s.id)
         .filter((i) => !q || i.name.toLowerCase().includes(q.toLowerCase()))
         .map((i) => {
-          // 4. Gauge Difference of that item
+          // 4. Item's gauge difference
           const gaugeDiff = localGauges[i.id] !== undefined ? localGauges[i.id] : Number(i.gauge_diff ?? 0);
-          
-          return { 
-            ...i, 
-            gauge_diff: gaugeDiff, 
-            today: baseToday + gaugeDiff, // Math applied here!
-            sauda: baseSauda !== null ? baseSauda + gaugeDiff : null, 
-            party: baseParty + gaugeDiff 
+
+          return {
+            ...i,
+            gauge_diff: gaugeDiff,
+            // Today's Rate = Selected Factory Today Rate + Factory Adder + Gauge Diff
+            today: baseToday + gaugeDiff,
+            sauda: baseSauda !== null ? baseSauda + gaugeDiff : null,
+            party: baseParty + gaugeDiff,
           };
         });
 
-      return { 
-        section: s, 
+      return {
+        section: s,
         activeTodayFactory,
         activeFacBasic,
         activeFacAdder,
         topSauda,
-        rows 
+        rows,
       };
-    }).filter(g => g.rows.length > 0);
+    }).filter((g) => g.rows.length > 0);
   }, [factories.data, sections.data, items.data, pickedTodayFactory, pickedSauda, allOpenSaudas, q, localGauges]);
-
   const handleExportCSV = () => {
     let csvContent = "data:text/csv;charset=utf-8,";
     grouped.forEach(({ section, rows }) => {
