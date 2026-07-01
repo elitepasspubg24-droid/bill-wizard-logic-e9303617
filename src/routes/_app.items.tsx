@@ -1,443 +1,240 @@
+import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
-import { fetchFactories, fetchSections, fetchItems, fetchSaudas } from "@/lib/queries";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Plus, Package, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { List, FileDown, Factory, Sliders, FileText } from "lucide-react";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { toast } from "sonner"; // Using your sonner toast configuration
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-type ColKey = "gauge_diff" | "today" | "sauda" | "party" | "available_qty" | "last_purchase_rate";
-const ALL_COLS: { key: ColKey; label: string }[] = [
-  { key: "gauge_diff", label: "Gauge Diff" },
-  { key: "today", label: "Today Rate" },
-  { key: "sauda", label: "Sauda Rate" },
-  { key: "party", label: "Party Rate" },
-  { key: "available_qty", label: "Stock Qty" },
-  { key: "last_purchase_rate", label: "Last Purchase" },
-];
-const DEFAULT_PDF_COLS: ColKey[] = ["available_qty", "last_purchase_rate"];
+// 1. Interface definitions
+interface Item {
+  id: string;
+  name: string;
+  price: number;
+  section: string;
+}
 
 export const Route = createFileRoute("/_app/items")({
-  component: ItemsPage,
-  head: () => ({ meta: [{ title: "Items Summary" }] }),
+  component: ItemsComponent,
 });
 
-function ItemsPage() {
-  const factories = useQuery({ queryKey: ["factories"], queryFn: fetchFactories });
-  const sections = useQuery({ queryKey: ["sections"], queryFn: fetchSections });
-  const items = useQuery({ queryKey: ["items"], queryFn: fetchItems });
-  const saudas = useQuery({ queryKey: ["saudas"], queryFn: fetchSaudas });
-  
-  const [q, setQ] = useState("");
-  const [pickedSauda, setPickedSauda] = useState<Record<string, string>>({});
-  const [isEditingGauges, setIsEditingGauges] = useState(false);
-  const [localGauges, setLocalGauges] = useState<Record<string, number>>({});
-  const [pdfCols, setPdfCols] = useState<ColKey[]>(DEFAULT_PDF_COLS);
+function ItemsComponent() {
+  // Mock local state (Replace with your Supabase useQuery data or local arrays)
+  const [items, setItems] = useState<Item[]>([
+    { id: "1", name: "Premium Wheat", price: 2400, section: "Grains" },
+    { id: "2", name: "Basmati Rice", price: 6500, section: "Grains" },
+    { id: "3", name: "Refined Oil", price: 1500, section: "Oils" },
+  ]);
 
-  const allOpenSaudas = useMemo(() => {
-    const list: any[] = [];
-    if (!saudas.data) return list;
-    for (const s of saudas.data as any[]) {
-      if (!s.factory_id || s.status === "done") continue;
-      const itemsTotal = (s.sauda_items ?? []).reduce((a: number, r: any) => a + Number(r.qty || 0), 0);
-      const total = Number(s.total_qty || 0) || itemsTotal;
-      const pending = Math.max(0, total - Number(s.lifted_qty || 0));
-      if (pending <= 0) continue;
-      list.push({ id: s.id, basic: Number(s.sauda_basic), party: s.party_name, pending, factory_id: s.factory_id });
+  // Derived state for existing unique sections
+  const sections = Array.from(new Set(items.map((item) => item.section)));
+
+  // Form & Dialog UI state
+  const [isOpen, setIsOpen] = useState(false);
+  const [newItemName, setNewItemName] = useState("");
+  const [newItemPrice, setNewItemPrice] = useState("");
+  const [selectedSection, setSelectedSection] = useState("");
+  const [customSection, setCustomSection] = useState("");
+
+  // 2. Handler function to add an item to any section
+  const handleAddItem = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // Validations
+    if (!newItemName.trim()) {
+      toast.error("Please enter an item name");
+      return;
     }
-    return list.sort((a, b) => b.pending - a.pending);
-  }, [saudas.data]);
 
-  const chosenByFactory = useMemo(() => {
-    const map = new Map<string, { basic: number; party: string; pending: number; id: string; factory_id: string }>();
-    if (!factories.data) return map;
-    for (const f of factories.data) {
-      const pickId = pickedSauda[f.id];
-      const factoryDefault = allOpenSaudas.find((x) => x.factory_id === f.id);
-      const picked = (pickId && allOpenSaudas.find((x) => x.id === pickId)) || factoryDefault || allOpenSaudas[0];
-      if (picked) map.set(f.id, picked);
+    const priceNum = parseFloat(newItemPrice);
+    if (isNaN(priceNum) || priceNum <= 0) {
+      toast.error("Please enter a valid price");
+      return;
     }
-    return map;
-  }, [factories.data, allOpenSaudas, pickedSauda]);
 
-  const grouped = useMemo(() => {
-    if (!sections.data || !items.data || !factories.data) return [];
-    const fmap = new Map(factories.data.map((f) => [f.id, f]));
-    return sections.data.map((s) => {
-      const f = fmap.get(s.factory_id);
-      const baseToday = (f?.basic_rate ?? 0) + Number(s.adder);
-      const top = chosenByFactory.get(s.factory_id);
-      const baseSauda = top ? top.basic + Number(s.adder) : null;
-      const baseParty = Number(s.party_basic);
-      const rows = items
-        .data!.filter((i) => i.section_id === s.id)
-        .filter((i) => !q || i.name.toLowerCase().includes(q.toLowerCase()))
-        .map((i) => {
-          const currentGaugeDiff = localGauges[i.id] !== undefined ? localGauges[i.id] : Number(i.gauge_diff);
-          return {
-            ...i,
-            gauge_diff: currentGaugeDiff,
-            today: baseToday + currentGaugeDiff,
-            sauda: baseSauda === null ? null : baseSauda + currentGaugeDiff,
-            party: baseParty + currentGaugeDiff,
-          };
-        });
-      return { section: s, factory: f, top, rows };
-    }).filter((g) => g.rows.length > 0);
-  }, [factories.data, sections.data, items.data, chosenByFactory, q, localGauges]);
+    // Determine target section name
+    const finalSection = selectedSection === "new" ? customSection.trim() : selectedSection;
+    if (!finalSection) {
+      toast.error("Please select or enter a section");
+      return;
+    }
 
-  const handleExportCSV = () => {
-    let csvContent = "data:text/csv;charset=utf-8,";
-    grouped.forEach(({ section, rows }) => {
-      csvContent += `SECTION: ${section.name.toUpperCase()}\r\n`;
-      csvContent += "Item,Gauge Diff,Today Rate,Sauda Rate,Party Rate,Stock Qty\r\n";
-      rows.forEach((r) => {
-        csvContent += `"${r.name}",${r.gauge_diff},${r.today},${r.sauda ?? "—"},${r.party},${Number(r.available_qty).toFixed(2)}\r\n`;
-      });
-      csvContent += "\r\n";
-    });
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "Rates_Stock_Report.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const newItem: Item = {
+      id: crypto.randomUUID(), // Fallback local ID generation
+      name: newItemName.trim(),
+      price: priceNum,
+      section: finalSection,
+    };
+
+    /** 
+     * NOTE FOR SUPABASE: If updating your database, swap this state logic with:
+     * const { error } = await supabase.from('items').insert([{ name: newItem.name, price: newItem.price, section: newItem.section }])
+     */
+    setItems((prev) => [...prev, newItem]);
+    toast.success(`"${newItemName}" successfully added to ${finalSection}!`);
+
+    // Reset Form fields and close Modal
+    setNewItemName("");
+    setNewItemPrice("");
+    setSelectedSection("");
+    setCustomSection("");
+    setIsOpen(false);
   };
 
-  const formatCell = (r: any, key: ColKey): string => {
-    switch (key) {
-      case "gauge_diff": return r.gauge_diff > 0 ? `+${r.gauge_diff}` : String(r.gauge_diff);
-      case "today": return r.today.toFixed(0);
-      case "sauda": return r.sauda === null ? "—" : r.sauda.toFixed(0);
-      case "party": return r.party.toFixed(0);
-      case "available_qty": return `${Number(r.available_qty).toFixed(2)} MT`;
-      case "last_purchase_rate": return r.last_purchase_rate != null ? String(r.last_purchase_rate) : "—";
-    }
-  };
-
-  const handleExportPDF = () => {
-    const doc = new jsPDF({ unit: "pt", format: "a4" });
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const selectedCols = ALL_COLS.filter((c) => pdfCols.includes(c.key));
-    const head = [["Item", ...selectedCols.map((c) => c.label)]];
-
-    doc.setFontSize(16);
-    doc.setFont("helvetica", "bold");
-    doc.text("Items Report", pageWidth / 2, 40, { align: "center" });
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(120);
-    doc.text(new Date().toLocaleString(), pageWidth / 2, 56, { align: "center" });
-    doc.setTextColor(0);
-
-    let cursorY = 78;
-    grouped.forEach(({ section, factory, rows }, idx) => {
-      if (idx > 0) cursorY += 18; // spacing between sections
-      if (cursorY > doc.internal.pageSize.getHeight() - 80) {
-        doc.addPage();
-        cursorY = 50;
-      }
-      doc.setFontSize(12);
-      doc.setFont("helvetica", "bold");
-      doc.text(section.name, 40, cursorY);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      doc.setTextColor(110);
-      if (factory) doc.text(`${factory.name}`, 40, cursorY + 13);
-      doc.setTextColor(0);
-      cursorY += 20;
-
-      const body = rows.map((r) => [r.name, ...selectedCols.map((c) => formatCell(r, c.key))]);
-      autoTable(doc, {
-        head,
-        body,
-        startY: cursorY,
-        margin: { left: 40, right: 40 },
-        styles: { fontSize: 10, cellPadding: 6, lineColor: [220, 220, 220], lineWidth: 0.5 },
-        headStyles: { fillColor: [240, 240, 240], textColor: 30, fontStyle: "bold" },
-        alternateRowStyles: { fillColor: [250, 250, 250] },
-        columnStyles: selectedCols.reduce((acc, _c, i) => {
-          acc[i + 1] = { halign: "right" };
-          return acc;
-        }, {} as Record<number, any>),
-        theme: "grid",
-      });
-      cursorY = (doc as any).lastAutoTable.finalY;
-    });
-
-    doc.save("Items_Report.pdf");
+  // 3. Helper to open the dialog with a section pre-selected
+  const openDialogForSection = (sectionName: string) => {
+    setSelectedSection(sectionName);
+    setIsOpen(true);
   };
 
   return (
-    <div className="w-full space-y-4">
-      {/* Universal Sticky Control Heading Strip */}
-      <div className="flex items-center justify-between gap-4 flex-wrap border-b pb-3">
+    <div className="p-6 max-w-5xl mx-auto space-y-6">
+      <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-xl md:text-2xl font-bold tracking-tight">Items Matrix</h2>
-          <p className="text-xs md:text-sm text-muted-foreground hidden sm:block">
-            Live calculations incorporating baseline configuration rules, section adders, and gauge variations.
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight">App Items</h1>
+          <p className="text-muted-foreground text-sm">Manage inventory items grouped by custom sections.</p>
         </div>
-        
-        <div className="flex items-center gap-2 ml-auto">
-          <Input placeholder="Search item…" value={q} onChange={(e) => setQ(e.target.value)} className="w-36 md:w-48 h-9 text-sm" />
-          
-          {/* Web-Only Edit Gauges Activation Key */}
-          <Button 
-            onClick={() => setIsEditingGauges(!isEditingGauges)} 
-            variant={isEditingGauges ? "default" : "outline"} 
-            size="sm" 
-            className="hidden md:flex gap-2 h-9 text-xs"
-          >
-            <Sliders className="h-4 w-4" />
-            <span>{isEditingGauges ? "Finish Editing" : "Edit Gauges"}</span>
-          </Button>
 
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-2 h-9 text-xs">
-                <FileText className="h-4 w-4" />
-                <span className="hidden sm:inline">PDF</span>
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-64">
-              <div className="space-y-3">
-                <div>
-                  <div className="text-sm font-semibold">Export as PDF</div>
-                  <div className="text-[11px] text-muted-foreground">Item name is always included.</div>
+        {/* --- GLOBAL DIALOG --- */}
+        <Dialog open={isOpen} onOpenChange={setIsOpen}>
+          <DialogTrigger asChild>
+            <Button className="gap-2">
+              <Plus className="h-4 w-4" /> Add Item
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Add New Item</DialogTitle>
+              <DialogDescription>
+                Create a item and choose which section to add it to.
+              </DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={handleAddItem} className="space-y-4 pt-2">
+              <div className="space-y-1">
+                <Label htmlFor="name">Item Name</Label>
+                <Input
+                  id="name"
+                  placeholder="e.g. Mustard Seed"
+                  value={newItemName}
+                  onChange={(e) => setNewItemName(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="price">Price (₹)</Label>
+                <Input
+                  id="price"
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={newItemPrice}
+                  onChange={(e) => setNewItemPrice(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label htmlFor="section">Assign to Section</Label>
+                <Select value={selectedSection} onValueChange={setSelectedSection}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a section" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sections.map((sec) => (
+                      <SelectItem key={sec} value={sec}>
+                        {sec}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="new" className="text-primary font-medium">
+                      + Create New Section
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Dynamic field displayed if "Create New Section" option is active */}
+              {selectedSection === "new" && (
+                <div className="space-y-1 transition-all duration-200">
+                  <Label htmlFor="custom-section">New Section Name</Label>
+                  <Input
+                    id="custom-section"
+                    placeholder="e.g. Spices"
+                    value={customSection}
+                    onChange={(e) => setCustomSection(e.target.value)}
+                  />
                 </div>
-                <div className="space-y-2">
-                  {ALL_COLS.map((c) => (
-                    <div key={c.key} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`pdfcol-${c.key}`}
-                        checked={pdfCols.includes(c.key)}
-                        onCheckedChange={(v) =>
-                          setPdfCols((prev) =>
-                            v ? [...prev, c.key] : prev.filter((k) => k !== c.key),
-                          )
-                        }
-                      />
-                      <Label htmlFor={`pdfcol-${c.key}`} className="text-xs font-normal cursor-pointer">
-                        {c.label}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-                <Button onClick={handleExportPDF} size="sm" className="w-full h-8 text-xs gap-2">
-                  <FileDown className="h-3.5 w-3.5" /> Download PDF
+              )}
+
+              <DialogFooter className="pt-4">
+                <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
+                  Cancel
                 </Button>
-              </div>
-            </PopoverContent>
-          </Popover>
-
-          <Button onClick={handleExportCSV} variant="outline" size="sm" className="gap-2 h-9 text-xs">
-            <FileDown className="h-4 w-4" />
-            <span className="hidden sm:inline">CSV</span>
-          </Button>
-        </div>
+                <Button type="submit">Save Item</Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
 
-      {/* 📱 MOBILE VIEW: Compact Continuous Spreadsheet Matrix */}
-      <div className="block md:hidden space-y-4">
-        {grouped.map(({ section, factory, top, rows }) => (
-          <div key={section.id} className="border rounded-lg overflow-visible bg-background shadow-sm">
-            <table className="w-full border-collapse text-left text-[11px] table-fixed">
-              <thead className="bg-slate-50 sticky top-0 z-10 border-b backdrop-blur-md shadow-xs">
-                {/* Embedded Section Info Header Row */}
-                <tr className="bg-slate-50 font-bold text-slate-800">
-                  <td colSpan={7} className="py-2 px-2 text-left rounded-t-lg">
-                    <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <div className="text-xs font-bold text-foreground">{section.name}</div>
-                          <div className="text-[10px] font-normal text-muted-foreground">
-                            {factory?.name}: {factory?.basic_rate ?? 0} + {section.adder} add
-                          </div>
-                        </div>
-                        {/* Interactive Sauda Dropdown Selection for Mobile */}
-                        {factory && allOpenSaudas.length > 0 && (
-                          <div className="flex items-center gap-1">
-                            <Select 
-                              value={pickedSauda[factory.id] ?? top?.id ?? ""} 
-                              onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}
-                            >
-                              <SelectTrigger className="h-7 w-40 text-[10px] bg-background px-2 py-0 shadow-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {allOpenSaudas.map((o) => (
-                                  <SelectItem key={o.id} value={o.id} className="text-[11px]">
-                                    {o.party} (B: {o.basic}) — {o.pending}T
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        )}
-                      </div>
-                      
-                      {/* Detailed Metadata Badges with Sauda Basic Rate */}
-                      {top && (
-                        <div className="text-[10px] text-emerald-800 font-medium bg-emerald-50 border border-emerald-100 rounded-sm px-1.5 py-0.5 w-max flex items-center gap-1.5">
-                          <span>Sauda Basic: <strong className="font-bold">₹{top.basic}</strong></span>
-                          <span className="text-emerald-300">|</span>
-                          <span className="truncate max-w-[100px]">Party: {top.party}</span>
-                          <span className="text-emerald-300">|</span>
-                          <span>Bal: {top.pending}t</span>
-                        </div>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-                {/* Unified 7-Column Layout Header Row */}
-                <tr className="text-muted-foreground font-semibold bg-muted/50 border-t">
-                  <th className="py-2 px-1 pl-2 w-[24%] text-left">Item</th>
-                  <th className="py-2 px-1 text-right w-[9%]">±</th>
-                  <th className="py-2 px-1 text-right w-[14%] bg-primary/5 text-primary font-bold">Today</th>
-                  <th className="py-2 px-1 text-right w-[14%]">Sauda</th>
-                  <th className="py-2 px-1 text-right w-[13%]">Party</th>
-                  <th className="py-2 px-1 text-right w-[13%]">Stock</th>
-                  <th className="py-2 px-1 text-right pr-2 w-[13%]">Last</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {rows.map((r) => (
-                  <tr key={r.id} className="hover:bg-muted/5">
-                    <td className="py-2 px-1 pl-2 font-medium text-foreground break-words">{r.name}</td>
-                    <td className="py-2 px-1 text-right font-mono text-muted-foreground whitespace-nowrap">{r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff}</td>
-                    <td className="py-2 px-1 text-right font-mono font-bold text-primary bg-primary/[0.01] whitespace-nowrap">{r.today.toFixed(0)}</td>
-                    <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
-                    <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.party.toFixed(0)}</td>
-                    <td className="py-2 px-1 text-right font-mono font-semibold text-foreground whitespace-nowrap">{Number(r.available_qty).toFixed(1)}t</td>
-                    <td className="py-2 px-1 text-right pr-2 font-mono text-muted-foreground whitespace-nowrap">{r.last_purchase_rate ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
-      </div>
+      <hr className="border-border" />
 
-      {/* 💻 WEB VIEW: Spacious, High-Information Card System */}
-      <div className="hidden md:block space-y-4">
-        {grouped.map(({ section, factory, top, rows }) => (
-          <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20 overflow-visible">
-            <div className="sticky top-14 z-20 bg-card border-b shadow-xs rounded-t-lg">
-              <div className="p-4 pb-2 flex flex-wrap items-center justify-between gap-3">
-                <h3 className="text-base font-bold text-foreground flex items-center gap-2">
-                  {section.name}
-                  <span className="text-xs font-normal text-muted-foreground flex items-center gap-1">
-                    (<Factory className="h-3 w-3 inline" /> {factory?.name} {factory?.basic_rate ?? 0} + {section.adder} adder)
-                  </span>
-                </h3>
-                {factory && allOpenSaudas.length > 0 && (
-                  <div className="flex items-center gap-2 text-xs font-normal">
-                    <span className="text-muted-foreground">Selected Sauda:</span>
-                    <Select value={pickedSauda[factory.id] ?? top?.id ?? ""} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
-                      <SelectTrigger className="h-7 w-72 text-xs bg-background"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {allOpenSaudas.map((o) => (
-                          <SelectItem key={o.id} value={o.id} className="text-xs">{o.party} — basic {o.basic} ({o.pending} pending)</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </div>
-              
-              {/* Header Titles */}
-              <div className="px-4 py-2 flex text-xs font-semibold text-muted-foreground bg-muted/20 border-t">
-                <div className="w-[24%] text-left">Item Name</div>
-                <div className="w-[10%] text-right pr-2">Gauge Diff</div>
-                <div className="w-[13%] text-right">Today's Rate</div>
-                <div className="w-[13%] text-right">Sauda Rate</div>
-                <div className="w-[13%] text-right">Party Rate</div>
-                <div className="w-[13%] text-right">Available Qty</div>
-                <div className="w-[14%] text-right pr-1">Last Purchase</div>
-              </div>
-            </div>
-
-            <CardContent className="p-0">
-              <div className="divide-y text-sm">
-                {rows.map((r) => (
-                  <div key={r.id} className="flex px-4 py-2.5 items-center hover:bg-muted/10 transition-colors">
-                    <div className="w-[24%] text-left font-medium pr-2 text-slate-900">{r.name}</div>
-                    
-                    {/* Gauge Column - Renders clean interactive numeric inputs when edit mode is toggled */}
-                    <div className="w-[10%] text-right text-muted-foreground font-mono pr-2 flex justify-end items-center">
-                      {isEditingGauges ? (
-                        <Input
-                          type="number"
-                          value={r.gauge_diff}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setLocalGauges((p) => ({ ...p, [r.id]: val }));
-                          }}
-                          className="h-7 w-16 text-right text-xs p-1 bg-background border-primary/40 focus-visible:ring-primary font-mono font-medium"
-                        />
-                      ) : (
-                        r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff
-                      )}
-                    </div>
-
-                    <div className="w-[13%] text-right font-mono font-bold text-primary">
-                      {r.today.toFixed(0)}
-                    </div>
-                    <div className="w-[13%] text-right font-mono text-slate-700">
-                      {r.sauda === null ? "—" : r.sauda.toFixed(0)}
-                    </div>
-                    <div className="w-[13%] text-right font-mono text-slate-700">
-                      {r.party.toFixed(0)}
-                    </div>
-                    <div className="w-[13%] text-right text-slate-900 font-medium">
-                      {Number(r.available_qty).toFixed(2)} MT
-                    </div>
-                    <div className="w-[14%] text-right text-muted-foreground font-mono pr-1">
-                      {r.last_purchase_rate ?? "—"}
-                    </div>
+      {/* --- RENDER SECTIONS DYNAMICALLY --- */}
+      <div className="grid gap-6 md:grid-cols-2">
+        {sections.map((section) => (
+          <Card key={section} className="shadow-sm">
+            <CardHeader className="bg-muted/40 flex flex-row items-center justify-between py-3 px-4 space-y-0">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Package className="h-4 w-4 text-muted-foreground" />
+                {section}
+              </CardTitle>
+              {/* Contextual Section Add Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1 text-xs"
+                onClick={() => openDialogForSection(section)}
+              >
+                <Plus className="h-3 w-3" /> Add here
+              </Button>
+            </CardHeader>
+            <CardContent className="p-0 divide-y divide-border">
+              {items
+                .filter((item) => item.section === section)
+                .map((item) => (
+                  <div key={item.id} className="flex justify-between items-center p-4 hover:bg-muted/10 transition-colors">
+                    <span className="text-sm font-medium">{item.name}</span>
+                    <span className="text-sm font-semibold text-muted-foreground">
+                      ₹{item.price.toFixed(2)}
+                    </span>
                   </div>
                 ))}
-              </div>
             </CardContent>
           </Card>
         ))}
-      </div>
 
-      {/* Floating Category Navigation Button */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button size="icon" className="fixed bottom-6 right-6 h-12 w-12 rounded-full shadow-lg z-50"><List className="h-5 w-5" /></Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" side="top" className="max-h-80 overflow-y-auto w-60">
-          <DropdownMenuLabel className="text-xs">Jump to section</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {grouped.map(({ section, factory }) => (
-            <DropdownMenuItem key={section.id} onSelect={() => document.getElementById(`section-${section.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-              <div className="flex flex-col text-xs">
-                <span className="font-semibold">{section.name}</span>
-                <span className="text-[10px] text-muted-foreground">{factory?.name}</span>
-              </div>
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+        {sections.length === 0 && (
+          <div className="col-span-2 text-center py-12 text-muted-foreground border border-dashed rounded-lg">
+            No items available. Click "Add Item" to initialize your first section.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
