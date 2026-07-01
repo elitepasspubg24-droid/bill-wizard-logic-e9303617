@@ -1,262 +1,522 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
-import { fetchFactories, fetchSections } from "@/lib/queries";
-import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { fetchFactories, fetchSections, fetchItems, fetchSaudas } from "@/lib/queries";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
-import { RotateCcw } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { List, FileDown, Factory, Sliders, FileText } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
-export const Route = createFileRoute("/_app/")({
-  component: RatesPage,
-  head: () => ({ meta: [{ title: "Daily Rates" }] }),
+type ColKey = "gauge_diff" | "today" | "sauda" | "party" | "available_qty" | "last_purchase_rate";
+const ALL_COLS: { key: ColKey; label: string }[] = [
+  { key: "gauge_diff", label: "Gauge Diff" },
+  { key: "today", label: "Today Rate" },
+  { key: "sauda", label: "Sauda Rate" },
+  { key: "party", label: "Party Rate" },
+  { key: "available_qty", label: "Stock Qty" },
+  { key: "last_purchase_rate", label: "Last Purchase" },
+];
+const DEFAULT_PDF_COLS: ColKey[] = ["available_qty", "last_purchase_rate"];
+
+export const Route = createFileRoute("/_app/items")({
+  component: ItemsPage,
+  head: () => ({ meta: [{ title: "Items Summary" }] }),
 });
 
-function RatesPage() {
-  const qc = useQueryClient();
+function ItemsPage() {
   const factories = useQuery({ queryKey: ["factories"], queryFn: fetchFactories });
   const sections = useQuery({ queryKey: ["sections"], queryFn: fetchSections });
+  const items = useQuery({ queryKey: ["items"], queryFn: fetchItems });
+  const saudas = useQuery({ queryKey: ["saudas"], queryFn: fetchSaudas });
+  
+  const [q, setQ] = useState("");
+  const [pickedSauda, setPickedSauda] = useState<Record<string, string>>({});
+  const [pickedTodayFactory, setPickedTodayFactory] = useState<Record<string, string>>({});
+  const [isEditingGauges, setIsEditingGauges] = useState(false);
+  const [localGauges, setLocalGauges] = useState<Record<string, number>>({});
+  const [pdfCols, setPdfCols] = useState<ColKey[]>(DEFAULT_PDF_COLS);
 
-  const [factoryRates, setFactoryRates] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    if (factories.data) {
-      const initial: Record<string, string> = {};
-      for (const f of factories.data) {
-        initial[f.id] = String(f.basic_rate);
-      }
-      setFactoryRates(initial);
+  const allOpenSaudas = useMemo(() => {
+    const list: any[] = [];
+    if (!saudas.data) return list;
+    for (const s of saudas.data as any[]) {
+      if (!s.factory_id || s.status === "done") continue;
+      const itemsTotal = (s.sauda_items ?? []).reduce((a: number, r: any) => a + Number(r.qty || 0), 0);
+      const total = Number(s.total_qty || 0) || itemsTotal;
+      const pending = Math.max(0, total - Number(s.lifted_qty || 0));
+      if (pending <= 0) continue;
+      list.push({ id: s.id, basic: Number(s.sauda_basic), party: s.party_name, pending, factory_id: s.factory_id });
     }
-  }, [factories.data]);
+    return list.sort((a, b) => b.pending - a.pending);
+  }, [saudas.data]);
 
-  // Adjusts all currently displayed factory input fields by a given number
-  const adjustAllRates = (amount: number) => {
-    setFactoryRates((prev) => {
-      const next: Record<string, string> = { ...prev };
-      (factories.data ?? []).forEach((f) => {
-        const currentVal = Number(prev[f.id]) || Number(f.basic_rate) || 0;
-        next[f.id] = String(currentVal + amount);
+  const chosenByFactory = useMemo(() => {
+    const map = new Map<string, { basic: number; party: string; pending: number; id: string; factory_id: string }>();
+    if (!factories.data) return map;
+    for (const f of factories.data) {
+      const pickId = pickedSauda[f.id];
+      const factoryDefault = allOpenSaudas.find((x) => x.factory_id === f.id);
+      const picked = (pickId && allOpenSaudas.find((x) => x.id === pickId)) || factoryDefault || allOpenSaudas[0];
+      if (picked) map.set(f.id, picked);
+    }
+    return map;
+  }, [factories.data, allOpenSaudas, pickedSauda]);
+
+  const grouped = useMemo(() => {
+    if (!sections.data || !items.data || !factories.data) return [];
+    const fmap = new Map(factories.data.map((f) => [f.id, f]));
+
+    // Dynamic helper to find the adder configuration matching a specific factory by section name
+    const lookupSectionSpecs = (targetFactoryId: string, currentSectionName: string, fallbackSec: any) => {
+      const match = sections.data.find(
+        (sec) =>
+          sec.factory_id === targetFactoryId &&
+          sec.name.trim().toLowerCase() === currentSectionName.trim().toLowerCase()
+      );
+      return {
+        adder: match ? Number(match.adder || 0) : Number(fallbackSec.adder || 0),
+        partyBasic: match ? Number(match.party_basic || 0) : Number(fallbackSec.party_basic || 0),
+      };
+    };
+
+    return sections.data.map((s) => {
+      const f = fmap.get(s.factory_id);
+      
+      // Calculate active today rate factory and its corresponding configured adder rules
+      const currentTodayFactoryId = pickedTodayFactory[s.id] ?? s.factory_id;
+      const activeTodayFactory = fmap.get(currentTodayFactoryId);
+      const todaySpecs = lookupSectionSpecs(currentTodayFactoryId, s.name, s);
+      
+      const baseToday = (activeTodayFactory?.basic_rate ?? 0) + todaySpecs.adder;
+      const baseParty = todaySpecs.partyBasic;
+
+      // Calculate active sauda rate using chosen sauda's specific factory adder rules
+      const top = chosenByFactory.get(s.factory_id);
+      let baseSauda = null;
+      let saudaAdder = 0;
+      
+      if (top) {
+        const saudaSpecs = lookupSectionSpecs(top.factory_id, s.name, s);
+        saudaAdder = saudaSpecs.adder;
+        baseSauda = top.basic + saudaAdder;
+      }
+
+      const rows = items.data!
+        .filter((i) => i.section_id === s.id)
+        .filter((i) => !q || i.name.toLowerCase().includes(q.toLowerCase()))
+        .map((i) => {
+          const currentGaugeDiff = localGauges[i.id] !== undefined ? localGauges[i.id] : Number(i.gauge_diff);
+          return {
+            ...i,
+            gauge_diff: currentGaugeDiff,
+            today: baseToday + currentGaugeDiff,
+            sauda: baseSauda === null ? null : baseSauda + currentGaugeDiff,
+            party: baseParty + currentGaugeDiff,
+          };
+        });
+
+      return { 
+        section: s, 
+        factory: f, 
+        activeTodayFactory, 
+        todayAdder: todaySpecs.adder, 
+        top, 
+        saudaAdder,
+        rows 
+      };
+    }).filter((g) => g.rows.length > 0);
+  }, [factories.data, sections.data, items.data, chosenByFactory, q, localGauges, pickedTodayFactory]);
+
+  const handleExportCSV = () => {
+    let csvContent = "data:text/csv;charset=utf-8,";
+    grouped.forEach(({ section, rows }) => {
+      csvContent += `SECTION: ${section.name.toUpperCase()}\r\n`;
+      csvContent += "Item,Gauge Diff,Today Rate,Sauda Rate,Party Rate,Stock Qty\r\n";
+      rows.forEach((r) => {
+        csvContent += `"${r.name}",${r.gauge_diff},${r.today},${r.sauda ?? "—"},${r.party},${Number(r.available_qty).toFixed(2)}\r\n`;
       });
-      return next;
+      csvContent += "\r\n";
     });
-    toast.success(`Adjusted all factories by ${amount > 0 ? `+${amount}` : amount}`);
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "Rates_Stock_Report.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
-  // Resets inputs back to their loaded database values
-  const resetAllRates = () => {
-    if (factories.data) {
-      const initial: Record<string, string> = {};
-      for (const f of factories.data) {
-        initial[f.id] = String(f.basic_rate);
-      }
-      setFactoryRates(initial);
-      toast.info("Reset inputs to saved rates");
+  const formatCell = (r: any, key: ColKey): string => {
+    switch (key) {
+      case "gauge_diff": return r.gauge_diff > 0 ? `+${r.gauge_diff}` : String(r.gauge_diff);
+      case "today": return r.today.toFixed(0);
+      case "sauda": return r.sauda === null ? "—" : r.sauda.toFixed(0);
+      case "party": return r.party.toFixed(0);
+      case "available_qty": return `${Number(r.available_qty).toFixed(2)} MT`;
+      case "last_purchase_rate": return r.last_purchase_rate != null ? String(r.last_purchase_rate) : "—";
     }
   };
 
-  const saveAllFactories = useMutation({
-    mutationFn: async () => {
-      const failures: string[] = [];
-      for (const f of factories.data ?? []) {
-        const val = Number(factoryRates[f.id]);
-        if (isNaN(val) || val === Number(f.basic_rate)) continue; // Skip unchanged or invalid
+  const handleExportPDF = () => {
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const selectedCols = ALL_COLS.filter((c) => pdfCols.includes(c.key));
+    const head = [["Item", ...selectedCols.map((c) => c.label)]];
 
-        const { error } = await supabase
-          .from("factories")
-          .update({ basic_rate: val, updated_at: new Date().toISOString() })
-          .eq("id", f.id);
-        if (error) failures.push(`${f.name}: ${error.message}`);
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.text("Items Report", pageWidth / 2, 40, { align: "center" });
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(120);
+    doc.text(new Date().toLocaleString(), pageWidth / 2, 56, { align: "center" });
+    doc.setTextColor(0);
+
+    let cursorY = 78;
+    grouped.forEach(({ section, activeTodayFactory, rows }, idx) => {
+      if (idx > 0) cursorY += 18;
+      if (cursorY > doc.internal.pageSize.getHeight() - 80) {
+        doc.addPage();
+        cursorY = 50;
       }
-      if (failures.length) throw new Error(failures.join(" | "));
-    },
-    onSuccess: () => {
-      toast.success("All factory rates updated");
-      qc.invalidateQueries({ queryKey: ["factories"] });
-    },
-    onError: (e: any) => toast.error(e.message),
-  });
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "bold");
+      doc.text(section.name, 40, cursorY);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(110);
+      if (activeTodayFactory) doc.text(`${activeTodayFactory.name}`, 40, cursorY + 13);
+      doc.setTextColor(0);
+      cursorY += 20;
+
+      const body = rows.map((r) => [r.name, ...selectedCols.map((c) => formatCell(r, c.key))]);
+      autoTable(doc, {
+        head,
+        body,
+        startY: cursorY,
+        margin: { left: 40, right: 40 },
+        styles: { fontSize: 10, cellPadding: 6, lineColor: [220, 220, 220], lineWidth: 0.5 },
+        headStyles: { fillColor: [240, 240, 240], textColor: 30, fontStyle: "bold" },
+        alternateRowStyles: { fillColor: [250, 250, 250] },
+        columnStyles: selectedCols.reduce((acc, _c, i) => {
+          acc[i + 1] = { halign: "right" };
+          return acc;
+        }, {} as Record<number, any>),
+        theme: "grid",
+      });
+      cursorY = (doc as any).lastAutoTable.finalY;
+    });
+
+    doc.save("Items_Report.pdf");
+  };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Daily Factory Rates</h2>
-        <p className="text-sm text-muted-foreground">
-          Update each factory's basic rate. All Today/Sauda/Party rates auto-recompute.
-        </p>
+    <div className="w-full space-y-4">
+      {/* Universal Sticky Control Heading Strip */}
+      <div className="flex items-center justify-between gap-4 flex-wrap border-b pb-3">
+        <div>
+          <h2 className="text-xl md:text-2xl font-bold tracking-tight">Items Matrix</h2>
+          <p className="text-xs md:text-sm text-muted-foreground hidden sm:block">
+            Live calculations incorporating baseline configuration rules, section adders, and gauge variations.
+          </p>
+        </div>
+        
+        <div className="flex items-center gap-2 ml-auto">
+          <Input placeholder="Search item…" value={q} onChange={(e) => setQ(e.target.value)} className="w-36 md:w-48 h-9 text-sm" />
+          
+          <Button 
+            onClick={() => setIsEditingGauges(!isEditingGauges)} 
+            variant={isEditingGauges ? "default" : "outline"} 
+            size="sm" 
+            className="hidden md:flex gap-2 h-9 text-xs"
+          >
+            <Sliders className="h-4 w-4" />
+            <span>{isEditingGauges ? "Finish Editing" : "Edit Gauges"}</span>
+          </Button>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2 h-9 text-xs">
+                <FileText className="h-4 w-4" />
+                <span className="hidden sm:inline">PDF</span>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-64">
+              <div className="space-y-3">
+                <div>
+                  <div className="text-sm font-semibold">Export as PDF</div>
+                  <div className="text-[11px] text-muted-foreground">Item name is always included.</div>
+                </div>
+                <div className="space-y-2">
+                  {ALL_COLS.map((c) => (
+                    <div key={c.key} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`pdfcol-${c.key}`}
+                        checked={pdfCols.includes(c.key)}
+                        onCheckedChange={(v) =>
+                          setPdfCols((prev) =>
+                            v ? [...prev, c.key] : prev.filter((k) => k !== c.key),
+                          )
+                        }
+                      />
+                      <Label htmlFor={`pdfcol-${c.key}`} className="text-xs font-normal cursor-pointer">
+                        {c.label}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+                <Button onClick={handleExportPDF} size="sm" className="w-full h-8 text-xs gap-2">
+                  <FileDown className="h-3.5 w-3.5" /> Download PDF
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          <Button onClick={handleExportCSV} variant="outline" size="sm" className="gap-2 h-9 text-xs">
+            <FileDown className="h-4 w-4" />
+            <span className="hidden sm:inline">CSV</span>
+          </Button>
+        </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-4 flex-wrap">
-              <span>Factory Basic Rates</span>
-              
-              {/* Global Multi-Factory Quick Adjuster Panel */}
-              <div className="flex items-center gap-1 border rounded-lg p-1 bg-muted/40 font-normal">
-                <span className="text-xs font-semibold px-2 text-muted-foreground">Bulk Shift:</span>
-                <button type="button" className="h-7 px-2 text-xs rounded bg-background border border-red-200 text-red-600 hover:bg-red-50 font-medium transition-colors" onClick={() => adjustAllRates(-200)}>-200</button>
-                <button type="button" className="h-7 px-2 text-xs rounded bg-background border border-red-100 text-red-500 hover:bg-red-50 font-medium transition-colors" onClick={() => adjustAllRates(-100)}>-100</button>
-                <button type="button" className="h-7 px-2 text-xs rounded bg-background border border-emerald-100 text-emerald-500 hover:bg-emerald-50 font-medium transition-colors" onClick={() => adjustAllRates(100)}>+100</button>
-                <button type="button" className="h-7 px-2 text-xs rounded bg-background border border-emerald-200 text-emerald-600 hover:bg-emerald-50 font-medium transition-colors" onClick={() => adjustAllRates(200)}>+200</button>
-                <button type="button" className="h-7 px-2 text-xs rounded text-muted-foreground hover:text-foreground flex items-center gap-1 px-1.5 transition-colors" onClick={resetAllRates}>
-                  <RotateCcw className="h-3 w-3" />
-                  Reset
-                </button>
-              </div>
-            </div>
+      {/* 📱 MOBILE VIEW: Compact Continuous Spreadsheet Matrix */}
+      <div className="block md:hidden space-y-4">
+        {grouped.map(({ section, factory, activeTodayFactory, todayAdder, top, saudaAdder, rows }) => (
+          <div key={section.id} className="border rounded-lg overflow-visible bg-background shadow-sm">
+            <table className="w-full border-collapse text-left text-[11px] table-fixed">
+              <thead className="bg-slate-50 sticky top-0 z-10 border-b backdrop-blur-md shadow-xs">
+                <tr className="bg-slate-50 font-bold text-slate-800">
+                  <td colSpan={7} className="py-2 px-2 text-left rounded-t-lg">
+                    <div className="flex flex-col gap-2">
+                      <div className="flex flex-col">
+                        <div className="text-xs font-bold text-foreground">{section.name}</div>
+                        <div className="text-[10px] font-normal text-muted-foreground">
+                          Today ({activeTodayFactory?.name}): ₹{activeTodayFactory?.basic_rate ?? 0} + ₹{todayAdder} adder
+                        </div>
+                      </div>
 
-            <Button size="sm" onClick={() => saveAllFactories.mutate()} disabled={saveAllFactories.isPending}>
-              {saveAllFactories.isPending ? "Saving…" : "Save all"}
-            </Button>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {factories.data?.map((f) => (
-            <div key={f.id} className="border rounded-md p-3">
-              <Label className="text-xs">{f.name}</Label>
-              <div className="flex gap-2 mt-1">
-                <Input 
-                  type="number" 
-                  value={factoryRates[f.id] ?? ""} 
-                  onChange={(e) => setFactoryRates(prev => ({ ...prev, [f.id]: e.target.value }))} 
-                />
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+                      {/* Selectors Column Stacking for Mobile view */}
+                      <div className="grid grid-cols-1 gap-1.5 mt-1">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-[10px] text-muted-foreground font-normal">Today Factory:</span>
+                          <Select 
+                            value={pickedTodayFactory[section.id] ?? section.factory_id} 
+                            onValueChange={(v) => setPickedTodayFactory((p) => ({ ...p, [section.id]: v }))}
+                          >
+                            <SelectTrigger className="h-6 w-44 text-[10px] bg-background px-2 py-0 shadow-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {factories.data?.map((fac) => (
+                                <SelectItem key={fac.id} value={fac.id} className="text-[11px]">
+                                  {fac.name} (₹{fac.basic_rate})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
 
-      <SectionsCard
-        sections={sections.data ?? []}
-        factories={factories.data ?? []}
-        onSaved={() => qc.invalidateQueries({ queryKey: ["sections"] })}
-      />
-    </div>
-  );
-}
-
-type RowState = { adder: string; pAdder: string };
-
-function SectionsCard({ sections, factories, onSaved }: { sections: any[]; factories: any[]; onSaved: () => void }) {
-  const [globalPartyAdder, setGlobalPartyAdder] = useState("");
-  const [rows, setRows] = useState<Record<string, RowState>>({});
-
-  useEffect(() => {
-    setRows((prev) => {
-      const next: Record<string, RowState> = {};
-      for (const s of sections) {
-        const existing = prev[s.id];
-        const factory = factories.find((f: any) => f.id === s.factory_id);
-        const todayBasic = Number(factory?.basic_rate ?? 0);
-        const derivedPartyAdder = Number(s.party_basic) - todayBasic - Number(s.adder);
-        next[s.id] = existing ?? {
-          adder: String(s.adder),
-          pAdder: Number.isFinite(derivedPartyAdder) ? String(derivedPartyAdder) : "0",
-        };
-      }
-      return next;
-    });
-  }, [sections, factories]);
-
-  const updateRow = (id: string, patch: Partial<RowState>) =>
-    setRows((r) => ({ ...r, [id]: { ...r[id], ...patch } }));
-
-  const applyGlobal = () => {
-    setRows((r) => {
-      const next: Record<string, RowState> = {};
-      for (const id of Object.keys(r)) next[id] = { ...r[id], pAdder: globalPartyAdder };
-      return next;
-    });
-    toast.success("Applied to all sections");
-  };
-
-  const saveAll = useMutation({
-    mutationFn: async () => {
-      const failures: string[] = [];
-      for (const s of sections) {
-        const r = rows[s.id];
-        if (!r) continue;
-        const factory = factories.find((f: any) => f.id === s.factory_id);
-        const todayBasic = Number(factory?.basic_rate ?? 0);
-        const adder = Number(r.adder) || 0;
-        const pAdder = Number(r.pAdder) || 0;
-        const { error } = await supabase
-          .from("sections")
-          .update({ adder, party_basic: todayBasic + adder + pAdder })
-          .eq("id", s.id);
-        if (error) failures.push(`${s.name}: ${error.message}`);
-      }
-      if (failures.length) throw new Error(failures.join(" | "));
-    },
-    onSuccess: () => { toast.success("All sections saved"); onSaved(); },
-    onError: (e: any) => toast.error(e.message),
-  });
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex flex-wrap items-center justify-between gap-3">
-          <span>Section Adders</span>
-          <div className="flex items-center gap-2 text-sm font-normal">
-            <Label className="text-xs">Party Adder (all):</Label>
-            <Input
-              className="w-24"
-              type="number"
-              value={globalPartyAdder}
-              onChange={(e) => setGlobalPartyAdder(e.target.value)}
-              placeholder="e.g. 200"
-            />
-            <Button size="sm" variant="secondary" onClick={applyGlobal}>Apply to all</Button>
-            <Button size="sm" onClick={() => saveAll.mutate()} disabled={saveAll.isPending}>
-              {saveAll.isPending ? "Saving…" : "Save all"}
-            </Button>
-          </div>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="border-b">
-            <tr className="text-left">
-              <th className="p-2">Section</th>
-              <th className="p-2">Factory</th>
-              <th className="p-2">Today's Basic</th>
-              <th className="p-2">Adder (+)</th>
-              <th className="p-2">Today's Rate</th>
-              <th className="p-2">Party Adder (+)</th>
-              <th className="p-2">Party Basic</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sections.map((s) => {
-              const factory = factories.find((f: any) => f.id === s.factory_id);
-              const r = rows[s.id] ?? { adder: "0", pAdder: "0" };
-              const todayBasic = Number(factory?.basic_rate ?? 0);
-              const todayRate = todayBasic + (Number(r.adder) || 0);
-              const partyBasic = todayRate + (Number(r.pAdder) || 0);
-              return (
-                <tr key={s.id} className="border-b">
-                  <td className="p-2 font-medium">{s.name}</td>
-                  <td className="p-2 text-muted-foreground">{factory?.name ?? "—"}</td>
-                  <td className="p-2 font-mono text-muted-foreground">{todayBasic.toFixed(0)}</td>
-                  <td className="p-2">
-                    <Input className="w-24" type="number" value={r.adder}
-                      onChange={(e) => updateRow(s.id, { adder: e.target.value })} />
+                        {factory && allOpenSaudas.length > 0 && (
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-[10px] text-muted-foreground font-normal">Sauda Config:</span>
+                            <Select 
+                              value={pickedSauda[factory.id] ?? top?.id ?? ""} 
+                              onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}
+                            >
+                              <SelectTrigger className="h-6 w-44 text-[10px] bg-background px-2 py-0 shadow-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {allOpenSaudas.map((o) => (
+                                  <SelectItem key={o.id} value={o.id} className="text-[11px]">
+                                    {o.party} (B: {o.basic}) — {o.pending}T
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Detailed Metadata Badges with Sauda Basic Rate + Its Dynamic Adder */}
+                      {top && (
+                        <div className="text-[10px] text-emerald-800 font-medium bg-emerald-50 border border-emerald-100 rounded-sm px-1.5 py-0.5 w-max flex items-center gap-1.5 mt-0.5">
+                          <span>Sauda: ₹{top.basic} + ₹{saudaAdder} adder</span>
+                          <span className="text-emerald-300">|</span>
+                          <span className="truncate max-w-[90px]">Party: {top.party}</span>
+                          <span className="text-emerald-300">|</span>
+                          <span>Bal: {top.pending}t</span>
+                        </div>
+                      )}
+                    </div>
                   </td>
-                  <td className="p-2 font-mono font-semibold text-primary">{todayRate.toFixed(0)}</td>
-                  <td className="p-2">
-                    <Input className="w-24" type="number" value={r.pAdder}
-                      onChange={(e) => updateRow(s.id, { pAdder: e.target.value })} />
-                  </td>
-                  <td className="p-2 font-mono font-semibold">{partyBasic.toFixed(0)}</td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </CardContent>
-    </Card>
+                <tr className="text-muted-foreground font-semibold bg-muted/50 border-t">
+                  <th className="py-2 px-1 pl-2 w-[24%] text-left">Item</th>
+                  <th className="py-2 px-1 text-right w-[9%]">±</th>
+                  <th className="py-2 px-1 text-right w-[14%] bg-primary/5 text-primary font-bold">Today</th>
+                  <th className="py-2 px-1 text-right w-[14%]">Sauda</th>
+                  <th className="py-2 px-1 text-right w-[13%]">Party</th>
+                  <th className="py-2 px-1 text-right w-[13%]">Stock</th>
+                  <th className="py-2 px-1 text-right pr-2 w-[13%]">Last</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {rows.map((r) => (
+                  <tr key={r.id} className="hover:bg-muted/5">
+                    <td className="py-2 px-1 pl-2 font-medium text-foreground break-words">{r.name}</td>
+                    <td className="py-2 px-1 text-right font-mono text-muted-foreground whitespace-nowrap">{r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff}</td>
+                    <td className="py-2 px-1 text-right font-mono font-bold text-primary bg-primary/[0.01] whitespace-nowrap">{r.today.toFixed(0)}</td>
+                    <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
+                    <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.party.toFixed(0)}</td>
+                    <td className="py-2 px-1 text-right font-mono font-semibold text-foreground whitespace-nowrap">{Number(r.available_qty).toFixed(1)}t</td>
+                    <td className="py-2 px-1 text-right pr-2 font-mono text-muted-foreground whitespace-nowrap">{r.last_purchase_rate ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+
+      {/* 💻 WEB VIEW: Spacious, High-Information Card System */}
+      <div className="hidden md:block space-y-4">
+        {grouped.map(({ section, factory, activeTodayFactory, todayAdder, top, rows }) => (
+          <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20 overflow-visible">
+            <div className="sticky top-14 z-20 bg-card border-b shadow-xs rounded-t-lg">
+              <div className="p-4 pb-2 flex flex-wrap items-center justify-between gap-3">
+                <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+                  {section.name}
+                  <span className="text-xs font-normal text-muted-foreground flex items-center gap-1">
+                    (<Factory className="h-3 w-3 inline" /> {activeTodayFactory?.name}: ₹{activeTodayFactory?.basic_rate ?? 0} + ₹{todayAdder} adder)
+                  </span>
+                </h3>
+                
+                <div className="flex items-center gap-4">
+                  {/* Dynamic Today's Rate Factory configuration drop selector */}
+                  <div className="flex items-center gap-2 text-xs font-normal">
+                    <span className="text-muted-foreground">Today's Factory:</span>
+                    <Select 
+                      value={pickedTodayFactory[section.id] ?? section.factory_id} 
+                      onValueChange={(v) => setPickedTodayFactory((p) => ({ ...p, [section.id]: v }))}
+                    >
+                      <SelectTrigger className="h-7 w-48 text-xs bg-background"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {factories.data?.map((fac) => (
+                          <SelectItem key={fac.id} value={fac.id} className="text-xs">
+                            {fac.name} (₹{fac.basic_rate})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {factory && allOpenSaudas.length > 0 && (
+                    <div className="flex items-center gap-2 text-xs font-normal">
+                      <span className="text-muted-foreground">Selected Sauda:</span>
+                      <Select value={pickedSauda[factory.id] ?? top?.id ?? ""} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
+                        <SelectTrigger className="h-7 w-72 text-xs bg-background"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {allOpenSaudas.map((o) => (
+                            <SelectItem key={o.id} value={o.id} className="text-xs">{o.party} — basic {o.basic} ({o.pending} pending)</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              {/* Header Titles */}
+              <div className="px-4 py-2 flex text-xs font-semibold text-muted-foreground bg-muted/20 border-t">
+                <div className="w-[24%] text-left">Item Name</div>
+                <div className="w-[10%] text-right pr-2">Gauge Diff</div>
+                <div className="w-[13%] text-right">Today's Rate</div>
+                <div className="w-[13%] text-right">Sauda Rate</div>
+                <div className="w-[13%] text-right">Party Rate</div>
+                <div className="w-[13%] text-right">Available Qty</div>
+                <div className="w-[14%] text-right pr-1">Last Purchase</div>
+              </div>
+            </div>
+
+            <CardContent className="p-0">
+              <div className="divide-y text-sm">
+                {rows.map((r) => (
+                  <div key={r.id} className="flex px-4 py-2.5 items-center hover:bg-muted/10 transition-colors">
+                    <div className="w-[24%] text-left font-medium pr-2 text-slate-900">{r.name}</div>
+                    
+                    {/* Gauge Column */}
+                    <div className="w-[10%] text-right text-muted-foreground font-mono pr-2 flex justify-end items-center">
+                      {isEditingGauges ? (
+                        <Input
+                          type="number"
+                          value={r.gauge_diff}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setLocalGauges((p) => ({ ...p, [r.id]: val }));
+                          }}
+                          className="h-7 w-16 text-right text-xs p-1 bg-background border-primary/40 focus-visible:ring-primary font-mono font-medium"
+                        />
+                      ) : (
+                        r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff
+                      )}
+                    </div>
+
+                    <div className="w-[13%] text-right font-mono font-bold text-primary">
+                      {r.today.toFixed(0)}
+                    </div>
+                    <div className="w-[13%] text-right font-mono text-slate-700">
+                      {r.sauda === null ? "—" : r.sauda.toFixed(0)}
+                    </div>
+                    <div className="w-[13%] text-right font-mono text-slate-700">
+                      {r.party.toFixed(0)}
+                    </div>
+                    <div className="w-[13%] text-right text-slate-900 font-medium">
+                      {Number(r.available_qty).toFixed(2)} MT
+                    </div>
+                    <div className="w-[14%] text-right text-muted-foreground font-mono pr-1">
+                      {r.last_purchase_rate ?? "—"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Floating Category Navigation Button */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="icon" className="fixed bottom-6 right-6 h-12 w-12 rounded-full shadow-lg z-50"><List className="h-5 w-5" /></Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" side="top" className="max-h-80 overflow-y-auto w-60">
+          <DropdownMenuLabel className="text-xs">Jump to section</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {grouped.map(({ section, factory }) => (
+            <DropdownMenuItem key={section.id} onSelect={() => document.getElementById(`section-${section.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+              <div className="flex flex-col text-xs">
+                <span className="font-semibold">{section.name}</span>
+                <span className="text-[10px] text-muted-foreground">{factory?.name}</span>
+              </div>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
