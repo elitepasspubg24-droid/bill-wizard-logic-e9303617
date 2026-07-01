@@ -11,8 +11,59 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Download } from "lucide-react";
 import { toast } from "sonner";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+
+function exportSaudasPDF(data: any[]) {
+  const doc = new jsPDF();
+  const now = new Date();
+  doc.setFontSize(14);
+  doc.text("Saudas Report", 14, 15);
+  doc.setFontSize(9);
+  doc.setTextColor(120);
+  doc.text(now.toLocaleString(), 14, 21);
+  doc.setTextColor(0);
+
+  const grouped = new Map<string, any[]>();
+  for (const s of data) {
+    const key = s.factories?.name ?? "Uncategorised";
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push(s);
+  }
+  const groups = [...grouped.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+
+  let y = 28;
+  for (const [factory, rows] of groups) {
+    const body = rows.map((s) => {
+      const total = Number(s.total_qty || 0) || (s.sauda_items ?? []).reduce((a: number, i: any) => a + Number(i.qty || 0), 0);
+      const lifted = Number(s.lifted_qty || 0);
+      const pending = Math.max(0, total - lifted);
+      return [s.sauda_date ?? "", s.party_name, factory, s.sauda_basic, total, pending];
+    });
+    autoTable(doc, {
+      startY: y,
+      head: [[factory]],
+      body: [],
+      theme: "plain",
+      headStyles: { fontStyle: "bold", fontSize: 11, fillColor: [230, 230, 230] },
+      margin: { left: 14, right: 14 },
+    });
+    autoTable(doc, {
+      startY: (doc as any).lastAutoTable.finalY + 1,
+      head: [["Date", "Party", "Factory", "Basic", "Qty", "Pending"]],
+      body,
+      theme: "grid",
+      styles: { fontSize: 9, cellPadding: 2 },
+      headStyles: { fillColor: [50, 50, 50] },
+      columnStyles: { 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" } },
+      margin: { left: 14, right: 14 },
+    });
+    y = (doc as any).lastAutoTable.finalY + 8;
+  }
+  doc.save(`saudas-${now.toISOString().slice(0, 10)}.pdf`);
+}
 
 export const Route = createFileRoute("/_app/saudas")({
   component: SaudasPage,
@@ -66,9 +117,14 @@ function SaudasPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Saudas</h2>
-        <p className="text-sm text-muted-foreground">Record a purchase sauda. Lifts happen automatically when you link a purchase bill, or adjust manually below.</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold">Saudas</h2>
+          <p className="text-sm text-muted-foreground">Record a purchase sauda. Lifts happen automatically when you link a purchase bill, or adjust manually below.</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => exportSaudasPDF(saudas.data ?? [])} disabled={!saudas.data?.length}>
+          <Download className="h-4 w-4 mr-1" /> Export PDF
+        </Button>
       </div>
 
       <Card>
