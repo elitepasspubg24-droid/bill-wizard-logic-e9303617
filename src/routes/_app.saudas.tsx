@@ -117,9 +117,14 @@ function SaudasPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Saudas</h2>
-        <p className="text-sm text-muted-foreground">Record a purchase sauda. Lifts happen automatically when you link a purchase bill, or adjust manually below.</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold">Saudas</h2>
+          <p className="text-sm text-muted-foreground">Record a purchase sauda. Lifts happen automatically when you link a purchase bill, or adjust manually below.</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => exportSaudasPDF(saudas.data ?? [])} disabled={!saudas.data?.length}>
+          <Download className="h-4 w-4 mr-1" /> Export PDF
+        </Button>
       </div>
 
       <Card>
