@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, Plus, Factory } from "lucide-react";
 
 export const Route = createFileRoute("/_app/")({
   component: RatesPage,
@@ -21,6 +21,9 @@ function RatesPage() {
   const sections = useQuery({ queryKey: ["sections"], queryFn: fetchSections });
 
   const [factoryRates, setFactoryRates] = useState<Record<string, string>>({});
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newFactoryName, setNewFactoryName] = useState("");
+  const [newFactoryRate, setNewFactoryRate] = useState("");
 
   useEffect(() => {
     if (factories.data) {
@@ -57,6 +60,31 @@ function RatesPage() {
     }
   };
 
+  // Add Factory Mutation
+  const addFactory = useMutation({
+    mutationFn: async () => {
+      if (!newFactoryName.trim() || !newFactoryRate.trim()) {
+        throw new Error("Please enter both factory name and initial rate.");
+      }
+      const { error } = await supabase
+        .from("factories")
+        .insert({
+          name: newFactoryName.trim(),
+          basic_rate: Number(newFactoryRate),
+          updated_at: new Date().toISOString(),
+        });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("New factory added successfully");
+      setNewFactoryName("");
+      setNewFactoryRate("");
+      setShowAddForm(false);
+      qc.invalidateQueries({ queryKey: ["factories"] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   const saveAllFactories = useMutation({
     mutationFn: async () => {
       const failures: string[] = [];
@@ -81,12 +109,63 @@ function RatesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Daily Factory Rates</h2>
-        <p className="text-sm text-muted-foreground">
-          Update each factory's basic rate. All Today/Sauda/Party rates auto-recompute.
-        </p>
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="text-2xl font-bold">Daily Factory Rates</h2>
+          <p className="text-sm text-muted-foreground">
+            Update each factory's basic rate. All Today/Sauda/Party rates auto-recompute.
+          </p>
+        </div>
+        <Button 
+          size="sm" 
+          variant={showAddForm ? "outline" : "default"} 
+          onClick={() => setShowAddForm(!showAddForm)}
+          className="gap-1.5"
+        >
+          <Plus className="h-4 w-4" />
+          {showAddForm ? "Cancel" : "Add Factory"}
+        </Button>
       </div>
+
+      {/* Dynamic Factory Addition Form */}
+      {showAddForm && (
+        <Card className="border-primary/20 bg-muted/10 animate-in fade-in slide-in-from-top-2 duration-200">
+          <CardHeader className="py-3">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <Factory className="h-4 w-4 text-primary" />
+              Register New Factory
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-3 items-end pb-4">
+            <div className="space-y-1">
+              <Label htmlFor="fac-name" className="text-xs">Factory Name</Label>
+              <Input 
+                id="fac-name" 
+                placeholder="e.g. Balaji Steels" 
+                value={newFactoryName} 
+                onChange={(e) => setNewFactoryName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="fac-rate" className="text-xs">Initial Basic Rate</Label>
+              <Input 
+                id="fac-rate" 
+                type="number" 
+                placeholder="e.g. 42000" 
+                value={newFactoryRate} 
+                onChange={(e) => setNewFactoryRate(e.target.value)}
+              />
+            </div>
+            <Button 
+              size="default" 
+              onClick={() => addFactory.mutate()} 
+              disabled={addFactory.isPending}
+            >
+              {addFactory.isPending ? "Creating..." : "Save Factory"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -199,7 +278,7 @@ function SectionsCard({ sections, factories, onSaved }: { sections: any[]; facto
     <Card>
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center justify-between gap-3">
-          <span>Section Adders</span>
+          <span>Section Adders (By Factory)</span>
           <div className="flex items-center gap-2 text-sm font-normal">
             <Label className="text-xs">Party Adder (all):</Label>
             <Input
@@ -216,46 +295,71 @@ function SectionsCard({ sections, factories, onSaved }: { sections: any[]; facto
           </div>
         </CardTitle>
       </CardHeader>
-      <CardContent className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="border-b">
-            <tr className="text-left">
-              <th className="p-2">Section</th>
-              <th className="p-2">Factory</th>
-              <th className="p-2">Today's Basic</th>
-              <th className="p-2">Adder (+)</th>
-              <th className="p-2">Today's Rate</th>
-              <th className="p-2">Party Adder (+)</th>
-              <th className="p-2">Party Basic</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sections.map((s) => {
-              const factory = factories.find((f: any) => f.id === s.factory_id);
-              const r = rows[s.id] ?? { adder: "0", pAdder: "0" };
-              const todayBasic = Number(factory?.basic_rate ?? 0);
-              const todayRate = todayBasic + (Number(r.adder) || 0);
-              const partyBasic = todayRate + (Number(r.pAdder) || 0);
-              return (
-                <tr key={s.id} className="border-b">
-                  <td className="p-2 font-medium">{s.name}</td>
-                  <td className="p-2 text-muted-foreground">{factory?.name ?? "—"}</td>
-                  <td className="p-2 font-mono text-muted-foreground">{todayBasic.toFixed(0)}</td>
-                  <td className="p-2">
-                    <Input className="w-24" type="number" value={r.adder}
-                      onChange={(e) => updateRow(s.id, { adder: e.target.value })} />
-                  </td>
-                  <td className="p-2 font-mono font-semibold text-primary">{todayRate.toFixed(0)}</td>
-                  <td className="p-2">
-                    <Input className="w-24" type="number" value={r.pAdder}
-                      onChange={(e) => updateRow(s.id, { pAdder: e.target.value })} />
-                  </td>
-                  <td className="p-2 font-mono font-semibold">{partyBasic.toFixed(0)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <CardContent className="space-y-8 overflow-x-auto">
+        {factories.map((factory) => {
+          // Filter sections belonging exclusively to this factory
+          const factorySections = sections.filter((s) => s.factory_id === factory.id);
+          if (factorySections.length === 0) return null;
+
+          return (
+            <div key={factory.id} className="border rounded-lg p-4 bg-muted/20">
+              <div className="mb-3 flex items-center justify-between border-b pb-2">
+                <h4 className="text-sm font-bold text-primary flex items-center gap-2">
+                  <Factory className="h-4 w-4" />
+                  {factory.name}
+                </h4>
+                <span className="text-xs font-mono text-muted-foreground bg-background px-2 py-0.5 rounded border">
+                  Base Rate: ₹{Number(factory.basic_rate).toFixed(0)}
+                </span>
+              </div>
+
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-muted-foreground border-b">
+                    <th className="p-2 pl-0">Section</th>
+                    <th className="p-2 text-right">Today's Basic</th>
+                    <th className="p-2 text-center">Adder (+)</th>
+                    <th className="p-2 text-right">Today's Rate</th>
+                    <th className="p-2 text-center">Party Adder (+)</th>
+                    <th className="p-2 text-right pr-0">Party Basic</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {factorySections.map((s) => {
+                    const r = rows[s.id] ?? { adder: "0", pAdder: "0" };
+                    const todayBasic = Number(factory?.basic_rate ?? 0);
+                    const todayRate = todayBasic + (Number(r.adder) || 0);
+                    const partyBasic = todayRate + (Number(r.pAdder) || 0);
+                    return (
+                      <tr key={s.id} className="border-b last:border-0 hover:bg-background/50 transition-colors">
+                        <td className="p-2 pl-0 font-medium">{s.name}</td>
+                        <td className="p-2 text-right font-mono text-muted-foreground">{todayBasic.toFixed(0)}</td>
+                        <td className="p-2 text-center">
+                          <Input 
+                            className="w-24 mx-auto h-8 text-center" 
+                            type="number" 
+                            value={r.adder}
+                            onChange={(e) => updateRow(s.id, { adder: e.target.value })} 
+                          />
+                        </td>
+                        <td className="p-2 text-right font-mono font-semibold text-primary">{todayRate.toFixed(0)}</td>
+                        <td className="p-2 text-center">
+                          <Input 
+                            className="w-24 mx-auto h-8 text-center" 
+                            type="number" 
+                            value={r.pAdder}
+                            onChange={(e) => updateRow(s.id, { pAdder: e.target.value })} 
+                          />
+                        </td>
+                        <td className="p-2 text-right pr-0 font-mono font-semibold">{partyBasic.toFixed(0)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          );
+        })}
       </CardContent>
     </Card>
   );
