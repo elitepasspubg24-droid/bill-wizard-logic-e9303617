@@ -14,7 +14,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { List, FileDown, Factory, Sliders, FileText } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { List, FileDown, Factory, Sliders, FileText, Plus } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -45,9 +53,18 @@ function ItemsPage() {
   
   const [q, setQ] = useState("");
   const [pickedSauda, setPickedSauda] = useState<Record<string, string>>({});
-  const [isEditingGauges, setIsEditingGauges] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [localGauges, setLocalGauges] = useState<Record<string, number>>({});
+  const [localNames, setLocalNames] = useState<Record<string, string>>({});
+  const [localSections, setLocalSections] = useState<Record<string, string>>({});
+  const [createdItems, setCreatedItems] = useState<any[]>([]);
   const [pdfCols, setPdfCols] = useState<ColKey[]>(DEFAULT_PDF_COLS);
+
+  // Form states for adding a new item
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [newItemName, setNewItemName] = useState("");
+  const [newItemSectionId, setNewItemSectionId] = useState("");
+  const [newItemGauge, setNewItemGauge] = useState("0");
 
   const allOpenSaudas = useMemo(() => {
     const list: any[] = [];
@@ -78,28 +95,61 @@ function ItemsPage() {
   const grouped = useMemo(() => {
     if (!sections.data || !items.data || !factories.data) return [];
     const fmap = new Map(factories.data.map((f) => [f.id, f]));
+
+    // Combine original query items with locally created temporary items
+    const combinedItems = [...(items.data ?? []), ...createdItems].map((item) => {
+      const currentGaugeDiff = localGauges[item.id] !== undefined ? localGauges[item.id] : Number(item.gauge_diff || 0);
+      const currentName = localNames[item.id] !== undefined ? localNames[item.id] : item.name;
+      const currentSectionId = localSections[item.id] !== undefined ? localSections[item.id] : item.section_id;
+
+      return {
+        ...item,
+        name: currentName,
+        section_id: currentSectionId,
+        gauge_diff: currentGaugeDiff,
+      };
+    });
+
     return sections.data.map((s) => {
       const f = fmap.get(s.factory_id);
       const baseToday = (f?.basic_rate ?? 0) + Number(s.adder);
       const top = chosenByFactory.get(s.factory_id);
       const baseSauda = top ? top.basic + Number(s.adder) : null;
       const baseParty = Number(s.party_basic);
-      const rows = items
-        .data!.filter((i) => i.section_id === s.id)
+
+      const rows = combinedItems
+        .filter((i) => i.section_id === s.id)
         .filter((i) => !q || i.name.toLowerCase().includes(q.toLowerCase()))
         .map((i) => {
-          const currentGaugeDiff = localGauges[i.id] !== undefined ? localGauges[i.id] : Number(i.gauge_diff);
           return {
             ...i,
-            gauge_diff: currentGaugeDiff,
-            today: baseToday + currentGaugeDiff,
-            sauda: baseSauda === null ? null : baseSauda + currentGaugeDiff,
-            party: baseParty + currentGaugeDiff,
+            today: baseToday + i.gauge_diff,
+            sauda: baseSauda === null ? null : baseSauda + i.gauge_diff,
+            party: baseParty + i.gauge_diff,
           };
         });
       return { section: s, factory: f, top, rows };
-    }).filter((g) => g.rows.length > 0);
-  }, [factories.data, sections.data, items.data, chosenByFactory, q, localGauges]);
+    }).filter((g) => g.rows.length > 0 || isEditing);
+  }, [factories.data, sections.data, items.data, createdItems, localGauges, localNames, localSections, chosenByFactory, q, isEditing]);
+
+  const handleAddItem = () => {
+    if (!newItemName || !newItemSectionId) return;
+    
+    const newItem = {
+      id: `local-new-${Date.now()}`, // Temporary local unique client ID
+      name: newItemName,
+      section_id: newItemSectionId,
+      gauge_diff: Number(newItemGauge) || 0,
+      available_qty: 0,
+      last_purchase_rate: null,
+    };
+
+    setCreatedItems((prev) => [...prev, newItem]);
+    setNewItemName("");
+    setNewItemGauge("0");
+    setIsAddOpen(false);
+    // Note: To persist this to a database, you would execute an items mutation framework engine here.
+  };
 
   const handleExportCSV = () => {
     let csvContent = "data:text/csv;charset=utf-8,";
@@ -198,15 +248,56 @@ function ItemsPage() {
         <div className="flex items-center gap-2 ml-auto">
           <Input placeholder="Search item…" value={q} onChange={(e) => setQ(e.target.value)} className="w-36 md:w-48 h-9 text-sm" />
           
-          {/* Web-Only Edit Gauges Activation Key */}
+          {/* Add Item Dialog Trigger */}
+          <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" className="gap-2 h-9 text-xs">
+                <Plus className="h-4 w-4" />
+                <span>Add Item</span>
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle>Add New Item Matrix Row</DialogTitle>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="item-name" className="text-xs">Item Name</Label>
+                  <Input id="item-name" value={newItemName} onChange={(e) => setNewItemName(e.target.value)} placeholder="e.g. 12mm TMT Steel" className="text-sm" />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="item-section" className="text-xs">Target Section Placement</Label>
+                  <Select value={newItemSectionId} onValueChange={setNewItemSectionId}>
+                    <SelectTrigger id="item-section">
+                      <SelectValue placeholder="Select target section" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sections.data?.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="item-gauge" className="text-xs">Initial Gauge Difference Modifier</Label>
+                  <Input id="item-gauge" type="number" value={newItemGauge} onChange={(e) => setNewItemGauge(e.target.value)} className="text-sm" />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button onClick={handleAddItem} disabled={!newItemName || !newItemSectionId} size="sm">Save New Item</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Master Inline Fields Edit Activation Key */}
           <Button 
-            onClick={() => setIsEditingGauges(!isEditingGauges)} 
-            variant={isEditingGauges ? "default" : "outline"} 
+            onClick={() => setIsEditing(!isEditing)} 
+            variant={isEditing ? "default" : "outline"} 
             size="sm" 
-            className="hidden md:flex gap-2 h-9 text-xs"
+            className="flex gap-2 h-9 text-xs"
           >
             <Sliders className="h-4 w-4" />
-            <span>{isEditingGauges ? "Finish Editing" : "Edit Gauges"}</span>
+            <span>{isEditing ? "Finish Editing" : "Edit Matrix Items"}</span>
           </Button>
 
           <Popover>
@@ -309,19 +400,55 @@ function ItemsPage() {
                 {/* Unified 7-Column Layout Header Row */}
                 <tr className="text-muted-foreground font-semibold bg-muted/50 border-t">
                   <th className="py-2 px-1 pl-2 w-[24%] text-left">Item</th>
-                  <th className="py-2 px-1 text-right w-[9%]">±</th>
+                  <th className="py-2 px-1 text-right w-[12%]">±</th>
                   <th className="py-2 px-1 text-right w-[14%] bg-primary/5 text-primary font-bold">Today</th>
-                  <th className="py-2 px-1 text-right w-[14%]">Sauda</th>
-                  <th className="py-2 px-1 text-right w-[13%]">Party</th>
+                  <th className="py-2 px-1 text-right w-[13%]">Sauda</th>
+                  <th className="py-2 px-1 text-right w-[12%]">Party</th>
                   <th className="py-2 px-1 text-right w-[13%]">Stock</th>
-                  <th className="py-2 px-1 text-right pr-2 w-[13%]">Last</th>
+                  <th className="py-2 px-1 text-right pr-2 w-[12%]">Last</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {rows.map((r) => (
                   <tr key={r.id} className="hover:bg-muted/5">
-                    <td className="py-2 px-1 pl-2 font-medium text-foreground break-words">{r.name}</td>
-                    <td className="py-2 px-1 text-right font-mono text-muted-foreground whitespace-nowrap">{r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff}</td>
+                    <td className="py-2 px-1 pl-2 font-medium text-foreground break-words">
+                      {isEditing ? (
+                        <div className="flex flex-col gap-1 pr-1">
+                          <Input
+                            value={r.name}
+                            onChange={(e) => setLocalNames((p) => ({ ...p, [r.id]: e.target.value }))}
+                            className="h-7 text-[10px] p-1 bg-background border-primary/30 focus-visible:ring-primary"
+                          />
+                          <Select
+                            value={r.section_id}
+                            onValueChange={(val) => setLocalSections((p) => ({ ...p, [r.id]: val }))}
+                          >
+                            <SelectTrigger className="h-6 text-[9px] bg-background px-1 py-0 border-primary/20">
+                              <SelectValue placeholder="Sec" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {sections.data?.map((s) => (
+                                <SelectItem key={s.id} value={s.id} className="text-[11px]">{s.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : (
+                        r.name
+                      )}
+                    </td>
+                    <td className="py-2 px-1 text-right font-mono text-muted-foreground whitespace-nowrap">
+                      {isEditing ? (
+                        <Input
+                          type="number"
+                          value={r.gauge_diff}
+                          onChange={(e) => setLocalGauges((p) => ({ ...p, [r.id]: Number(e.target.value) }))}
+                          className="h-7 w-full text-right text-[10px] p-1 bg-background border-primary/30 font-mono"
+                        />
+                      ) : (
+                        r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff
+                      )}
+                    </td>
                     <td className="py-2 px-1 text-right font-mono font-bold text-primary bg-primary/[0.01] whitespace-nowrap">{r.today.toFixed(0)}</td>
                     <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
                     <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.party.toFixed(0)}</td>
@@ -364,13 +491,13 @@ function ItemsPage() {
               
               {/* Header Titles */}
               <div className="px-4 py-2 flex text-xs font-semibold text-muted-foreground bg-muted/20 border-t">
-                <div className="w-[24%] text-left">Item Name</div>
+                <div className="w-[26%] text-left">Item Description & Section Assignment</div>
                 <div className="w-[10%] text-right pr-2">Gauge Diff</div>
                 <div className="w-[13%] text-right">Today's Rate</div>
                 <div className="w-[13%] text-right">Sauda Rate</div>
                 <div className="w-[13%] text-right">Party Rate</div>
-                <div className="w-[13%] text-right">Available Qty</div>
-                <div className="w-[14%] text-right pr-1">Last Purchase</div>
+                <div className="w-[12%] text-right">Available Qty</div>
+                <div className="w-[13%] text-right pr-1">Last Purchase</div>
               </div>
             </div>
 
@@ -378,18 +505,42 @@ function ItemsPage() {
               <div className="divide-y text-sm">
                 {rows.map((r) => (
                   <div key={r.id} className="flex px-4 py-2.5 items-center hover:bg-muted/10 transition-colors">
-                    <div className="w-[24%] text-left font-medium pr-2 text-slate-900">{r.name}</div>
                     
-                    {/* Gauge Column - Renders clean interactive numeric inputs when edit mode is toggled */}
+                    {/* Item Name & Section Column */}
+                    <div className="w-[26%] text-left font-medium pr-4 text-slate-900">
+                      {isEditing ? (
+                        <div className="flex flex-col gap-1.5 max-w-sm">
+                          <Input
+                            value={r.name}
+                            onChange={(e) => setLocalNames((p) => ({ ...p, [r.id]: e.target.value }))}
+                            className="h-7 text-xs bg-background border-primary/40 focus-visible:ring-primary font-medium"
+                          />
+                          <Select
+                            value={r.section_id}
+                            onValueChange={(val) => setLocalSections((p) => ({ ...p, [r.id]: val }))}
+                          >
+                            <SelectTrigger className="h-6 text-[11px] bg-background py-0 border-primary/20">
+                              <SelectValue placeholder="Change Section Allocation" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {sections.data?.map((s) => (
+                                <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : (
+                        r.name
+                      )}
+                    </div>
+                    
+                    {/* Gauge Column - Renders interactive inputs when editing */}
                     <div className="w-[10%] text-right text-muted-foreground font-mono pr-2 flex justify-end items-center">
-                      {isEditingGauges ? (
+                      {isEditing ? (
                         <Input
                           type="number"
                           value={r.gauge_diff}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setLocalGauges((p) => ({ ...p, [r.id]: val }));
-                          }}
+                          onChange={(e) => setLocalGauges((p) => ({ ...p, [r.id]: Number(e.target.value) }))}
                           className="h-7 w-16 text-right text-xs p-1 bg-background border-primary/40 focus-visible:ring-primary font-mono font-medium"
                         />
                       ) : (
@@ -406,10 +557,10 @@ function ItemsPage() {
                     <div className="w-[13%] text-right font-mono text-slate-700">
                       {r.party.toFixed(0)}
                     </div>
-                    <div className="w-[13%] text-right text-slate-900 font-medium">
+                    <div className="w-[12%] text-right text-slate-900 font-medium">
                       {Number(r.available_qty).toFixed(2)} MT
                     </div>
-                    <div className="w-[14%] text-right text-muted-foreground font-mono pr-1">
+                    <div className="w-[13%] text-right text-muted-foreground font-mono pr-1">
                       {r.last_purchase_rate ?? "—"}
                     </div>
                   </div>
