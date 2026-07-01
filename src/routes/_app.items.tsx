@@ -14,15 +14,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { List, FileDown, Factory, Sliders, FileText, Plus } from "lucide-react";
+import { List, FileDown, Factory, Sliders, FileText } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -54,22 +46,9 @@ function ItemsPage() {
   const [q, setQ] = useState("");
   const [pickedSauda, setPickedSauda] = useState<Record<string, string>>({});
   const [pickedTodayFactory, setPickedTodayFactory] = useState<Record<string, string>>({});
-  const [isEditing, setIsEditing] = useState(false);
-  
-  // Local state modifiers for inline edits
+  const [isEditingGauges, setIsEditingGauges] = useState(false);
   const [localGauges, setLocalGauges] = useState<Record<string, number>>({});
-  const [localNames, setLocalNames] = useState<Record<string, string>>({});
-  const [localSections, setLocalSections] = useState<Record<string, string>>({});
-  
-  // Local state for dynamically added temporary matrix rows
-  const [newItems, setNewItems] = useState<any[]>([]);
   const [pdfCols, setPdfCols] = useState<ColKey[]>(DEFAULT_PDF_COLS);
-
-  // Form states for the "Add New Item" Dialog
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [newItemName, setNewItemName] = useState("");
-  const [newItemSectionId, setNewItemSectionId] = useState("");
-  const [newItemGaugeDiff, setNewItemGaugeDiff] = useState(0);
 
   const allOpenSaudas = useMemo(() => {
     const list: any[] = [];
@@ -101,68 +80,66 @@ function ItemsPage() {
     if (!sections.data || !items.data || !factories.data) return [];
     const fmap = new Map(factories.data.map((f) => [f.id, f]));
 
-    // Construct a unified items list combining fetched items + locally created custom additions
-    const unifiedItems = [...items.data, ...newItems].map((i) => {
-      const currentGaugeDiff = localGauges[i.id] !== undefined ? localGauges[i.id] : Number(i.gauge_diff || 0);
-      const currentName = localNames[i.id] !== undefined ? localNames[i.id] : i.name;
-      const currentSectionId = localSections[i.id] !== undefined ? localSections[i.id] : i.section_id;
+    // Dynamic helper to find the adder configuration matching a specific factory by section name
+    const lookupSectionSpecs = (targetFactoryId: string, currentSectionName: string, fallbackSec: any) => {
+      const match = sections.data.find(
+        (sec) =>
+          sec.factory_id === targetFactoryId &&
+          sec.name.trim().toLowerCase() === currentSectionName.trim().toLowerCase()
+      );
       return {
-        ...i,
-        name: currentName,
-        section_id: currentSectionId,
-        gauge_diff: currentGaugeDiff,
+        adder: match ? Number(match.adder || 0) : Number(fallbackSec.adder || 0),
+        partyBasic: match ? Number(match.party_basic || 0) : Number(fallbackSec.party_basic || 0),
       };
-    });
+    };
 
-    const list = sections.data.map((s) => {
+    return sections.data.map((s) => {
       const f = fmap.get(s.factory_id);
       
-      // Resolve chosen factory for Today's rate
-      const pickedTodayFacId = pickedTodayFactory[s.factory_id];
-      const todayFactory = factories.data.find((x) => x.id === pickedTodayFacId) || f;
+      // Calculate active today rate factory and its corresponding configured adder rules
+      const currentTodayFactoryId = pickedTodayFactory[s.id] ?? s.factory_id;
+      const activeTodayFactory = fmap.get(currentTodayFactoryId);
+      const todaySpecs = lookupSectionSpecs(currentTodayFactoryId, s.name, s);
       
-      // Look up corresponding section name under that factory to fetch the right adder
-      const todaySection = sections.data.find(
-        (sec) => sec.factory_id === todayFactory?.id && sec.name.toLowerCase() === s.name.toLowerCase()
-      ) || s;
-      
-      const baseToday = (todayFactory?.basic_rate ?? 0) + Number(todaySection.adder);
-      
-      // Resolve chosen Sauda
+      const baseToday = (activeTodayFactory?.basic_rate ?? 0) + todaySpecs.adder;
+      const baseParty = todaySpecs.partyBasic;
+
+      // Calculate active sauda rate using chosen sauda's specific factory adder rules
       const top = chosenByFactory.get(s.factory_id);
+      let baseSauda = null;
+      let saudaAdder = 0;
       
-      // Look up corresponding section name under the Sauda's factory to fetch the right adder
-      const saudaFactoryId = top?.factory_id;
-      const saudaSection = saudaFactoryId 
-        ? (sections.data.find((sec) => sec.factory_id === saudaFactoryId && sec.name.toLowerCase() === s.name.toLowerCase()) || s)
-        : s;
-        
-      const baseSauda = top ? top.basic + Number(saudaSection.adder) : null;
-      const baseParty = Number(s.party_basic);
-      
-      const rows = unifiedItems
+      if (top) {
+        const saudaSpecs = lookupSectionSpecs(top.factory_id, s.name, s);
+        saudaAdder = saudaSpecs.adder;
+        baseSauda = top.basic + saudaAdder;
+      }
+
+      const rows = items.data!
         .filter((i) => i.section_id === s.id)
         .filter((i) => !q || i.name.toLowerCase().includes(q.toLowerCase()))
         .map((i) => {
+          const currentGaugeDiff = localGauges[i.id] !== undefined ? localGauges[i.id] : Number(i.gauge_diff);
           return {
             ...i,
-            today: baseToday + i.gauge_diff,
-            sauda: baseSauda === null ? null : baseSauda + i.gauge_diff,
-            party: baseParty + i.gauge_diff,
+            gauge_diff: currentGaugeDiff,
+            today: baseToday + currentGaugeDiff,
+            sauda: baseSauda === null ? null : baseSauda + currentGaugeDiff,
+            party: baseParty + currentGaugeDiff,
           };
         });
-      return { section: s, factory: f, todayFactory, todaySection, top, rows };
-    }).filter((g) => g.rows.length > 0 || isEditing);
 
-    // Shifts any section containing "ms pipe" in its title dynamically to the bottom
-    return [...list].sort((a, b) => {
-      const aIsPipe = a.section.name.toLowerCase().includes("ms pipe");
-      const bIsPipe = b.section.name.toLowerCase().includes("ms pipe");
-      if (aIsPipe && !bIsPipe) return 1;
-      if (!aIsPipe && bIsPipe) return -1;
-      return 0;
-    });
-  }, [factories.data, sections.data, items.data, newItems, chosenByFactory, pickedTodayFactory, q, localGauges, localNames, localSections, isEditing]);
+      return { 
+        section: s, 
+        factory: f, 
+        activeTodayFactory, 
+        todayAdder: todaySpecs.adder, 
+        top, 
+        saudaAdder,
+        rows 
+      };
+    }).filter((g) => g.rows.length > 0);
+  }, [factories.data, sections.data, items.data, chosenByFactory, q, localGauges, pickedTodayFactory]);
 
   const handleExportCSV = () => {
     let csvContent = "data:text/csv;charset=utf-8,";
@@ -210,8 +187,8 @@ function ItemsPage() {
     doc.setTextColor(0);
 
     let cursorY = 78;
-    grouped.forEach(({ section, todayFactory, rows }, idx) => {
-      if (idx > 0) cursorY += 18; // spacing between sections
+    grouped.forEach(({ section, activeTodayFactory, rows }, idx) => {
+      if (idx > 0) cursorY += 18;
       if (cursorY > doc.internal.pageSize.getHeight() - 80) {
         doc.addPage();
         cursorY = 50;
@@ -222,7 +199,7 @@ function ItemsPage() {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
       doc.setTextColor(110);
-      if (todayFactory) doc.text(`${todayFactory.name}`, 40, cursorY + 13);
+      if (activeTodayFactory) doc.text(`${activeTodayFactory.name}`, 40, cursorY + 13);
       doc.setTextColor(0);
       cursorY += 20;
 
@@ -247,23 +224,6 @@ function ItemsPage() {
     doc.save("Items_Report.pdf");
   };
 
-  const handleSaveNewItem = () => {
-    if (!newItemName || !newItemSectionId) return;
-    const itemObject = {
-      id: `custom-item-${Date.now()}`,
-      name: newItemName,
-      section_id: newItemSectionId,
-      gauge_diff: newItemGaugeDiff,
-      available_qty: 0,
-      last_purchase_rate: null,
-    };
-    setNewItems((prev) => [...prev, itemObject]);
-    setNewItemName("");
-    setNewItemSectionId("");
-    setNewItemGaugeDiff(0);
-    setIsAddDialogOpen(false);
-  };
-
   return (
     <div className="w-full space-y-4">
       {/* Universal Sticky Control Heading Strip */}
@@ -278,70 +238,14 @@ function ItemsPage() {
         <div className="flex items-center gap-2 ml-auto">
           <Input placeholder="Search item…" value={q} onChange={(e) => setQ(e.target.value)} className="w-36 md:w-48 h-9 text-sm" />
           
-          {/* Add Item Modal Dropdown Trigger */}
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm" className="gap-2 h-9 text-xs">
-                <Plus className="h-4 w-4" />
-                <span>Add Item</span>
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
-              <DialogHeader>
-                <DialogTitle>Create Matrix Row Item</DialogTitle>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="item_name" className="text-xs font-semibold">Item Name</Label>
-                  <Input
-                    id="item_name"
-                    value={newItemName}
-                    onChange={(e) => setNewItemName(e.target.value)}
-                    placeholder="e.g. 20mm Round Bar"
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="item_section" className="text-xs font-semibold">Target Section Placement</Label>
-                  <Select value={newItemSectionId} onValueChange={setNewItemSectionId}>
-                    <SelectTrigger id="item_section">
-                      <SelectValue placeholder="Select target section" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {sections.data?.map((s) => (
-                        <SelectItem key={s.id} value={s.id}>
-                          {s.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="item_gauge" className="text-xs font-semibold">Initial Gauge Difference Modifier</Label>
-                  <Input
-                    id="item_gauge"
-                    type="number"
-                    value={newItemGaugeDiff}
-                    onChange={(e) => setNewItemGaugeDiff(Number(e.target.value))}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button onClick={handleSaveNewItem} disabled={!newItemName || !newItemSectionId}>
-                  Save Item
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-
-          {/* Master Full-Field Editing Toggle Switch */}
           <Button 
-            onClick={() => setIsEditing(!isEditing)} 
-            variant={isEditing ? "default" : "outline"} 
+            onClick={() => setIsEditingGauges(!isEditingGauges)} 
+            variant={isEditingGauges ? "default" : "outline"} 
             size="sm" 
-            className="flex gap-2 h-9 text-xs"
+            className="hidden md:flex gap-2 h-9 text-xs"
           >
             <Sliders className="h-4 w-4" />
-            <span>{isEditing ? "Finish Editing" : "Edit Matrix Items"}</span>
+            <span>{isEditingGauges ? "Finish Editing" : "Edit Gauges"}</span>
           </Button>
 
           <Popover>
@@ -391,46 +295,49 @@ function ItemsPage() {
 
       {/* 📱 MOBILE VIEW: Compact Continuous Spreadsheet Matrix */}
       <div className="block md:hidden space-y-4">
-        {grouped.map(({ section, factory, todayFactory, todaySection, top, rows }) => (
+        {grouped.map(({ section, factory, activeTodayFactory, todayAdder, top, saudaAdder, rows }) => (
           <div key={section.id} className="border rounded-lg overflow-visible bg-background shadow-sm">
             <table className="w-full border-collapse text-left text-[11px] table-fixed">
               <thead className="bg-slate-50 sticky top-0 z-10 border-b backdrop-blur-md shadow-xs">
-                {/* Embedded Section Info Header Row */}
                 <tr className="bg-slate-50 font-bold text-slate-800">
                   <td colSpan={7} className="py-2 px-2 text-left rounded-t-lg">
-                    <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <div className="text-xs font-bold text-foreground">{section.name}</div>
-                          <div className="text-[10px] font-normal text-muted-foreground">
-                            {todayFactory?.name ?? factory?.name}: {todayFactory?.basic_rate ?? 0} + {todaySection?.adder ?? section.adder} add
-                          </div>
+                    <div className="flex flex-col gap-2">
+                      <div className="flex flex-col">
+                        <div className="text-xs font-bold text-foreground">{section.name}</div>
+                        <div className="text-[10px] font-normal text-muted-foreground">
+                          Today ({activeTodayFactory?.name}): ₹{activeTodayFactory?.basic_rate ?? 0} + ₹{todayAdder} adder
                         </div>
-                        {/* Interactive Dropdown Selectors for Mobile */}
-                        <div className="flex flex-col gap-1 items-end">
-                          {factory && factories.data && factories.data.length > 0 && (
-                            <Select 
-                              value={pickedTodayFactory[factory.id] ?? factory.id} 
-                              onValueChange={(v) => setPickedTodayFactory((p) => ({ ...p, [factory.id]: v }))}
-                            >
-                              <SelectTrigger className="h-7 w-40 text-[10px] bg-background px-2 py-0 shadow-xs">
-                                <SelectValue placeholder="Select Today Factory" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {factories.data.map((fac) => (
-                                  <SelectItem key={fac.id} value={fac.id} className="text-[11px]">
-                                    Today: {fac.name} (₹{fac.basic_rate})
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          )}
-                          {factory && allOpenSaudas.length > 0 && (
+                      </div>
+
+                      {/* Selectors Column Stacking for Mobile view */}
+                      <div className="grid grid-cols-1 gap-1.5 mt-1">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-[10px] text-muted-foreground font-normal">Today Factory:</span>
+                          <Select 
+                            value={pickedTodayFactory[section.id] ?? section.factory_id} 
+                            onValueChange={(v) => setPickedTodayFactory((p) => ({ ...p, [section.id]: v }))}
+                          >
+                            <SelectTrigger className="h-6 w-44 text-[10px] bg-background px-2 py-0 shadow-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {factories.data?.map((fac) => (
+                                <SelectItem key={fac.id} value={fac.id} className="text-[11px]">
+                                  {fac.name} (₹{fac.basic_rate})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {factory && allOpenSaudas.length > 0 && (
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="text-[10px] text-muted-foreground font-normal">Sauda Config:</span>
                             <Select 
                               value={pickedSauda[factory.id] ?? top?.id ?? ""} 
                               onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}
                             >
-                              <SelectTrigger className="h-7 w-40 text-[10px] bg-background px-2 py-0 shadow-xs">
+                              <SelectTrigger className="h-6 w-44 text-[10px] bg-background px-2 py-0 shadow-xs">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -441,16 +348,16 @@ function ItemsPage() {
                                 ))}
                               </SelectContent>
                             </Select>
-                          )}
-                        </div>
+                          </div>
+                        )}
                       </div>
                       
-                      {/* Detailed Metadata Badges with Sauda Basic Rate */}
+                      {/* Detailed Metadata Badges with Sauda Basic Rate + Its Dynamic Adder */}
                       {top && (
-                        <div className="text-[10px] text-emerald-800 font-medium bg-emerald-50 border border-emerald-100 rounded-sm px-1.5 py-0.5 w-max flex items-center gap-1.5">
-                          <span>Sauda Basic: <strong className="font-bold">₹{top.basic}</strong></span>
+                        <div className="text-[10px] text-emerald-800 font-medium bg-emerald-50 border border-emerald-100 rounded-sm px-1.5 py-0.5 w-max flex items-center gap-1.5 mt-0.5">
+                          <span>Sauda: ₹{top.basic} + ₹{saudaAdder} adder</span>
                           <span className="text-emerald-300">|</span>
-                          <span className="truncate max-w-[100px]">Party: {top.party}</span>
+                          <span className="truncate max-w-[90px]">Party: {top.party}</span>
                           <span className="text-emerald-300">|</span>
                           <span>Bal: {top.pending}t</span>
                         </div>
@@ -458,13 +365,12 @@ function ItemsPage() {
                     </div>
                   </td>
                 </tr>
-                {/* Unified 7-Column Layout Header Row */}
                 <tr className="text-muted-foreground font-semibold bg-muted/50 border-t">
                   <th className="py-2 px-1 pl-2 w-[24%] text-left">Item</th>
-                  <th className="py-2 px-1 text-right w-[11%]">±</th>
+                  <th className="py-2 px-1 text-right w-[9%]">±</th>
                   <th className="py-2 px-1 text-right w-[14%] bg-primary/5 text-primary font-bold">Today</th>
-                  <th className="py-2 px-1 text-right w-[13%]">Sauda</th>
-                  <th className="py-2 px-1 text-right w-[12%]">Party</th>
+                  <th className="py-2 px-1 text-right w-[14%]">Sauda</th>
+                  <th className="py-2 px-1 text-right w-[13%]">Party</th>
                   <th className="py-2 px-1 text-right w-[13%]">Stock</th>
                   <th className="py-2 px-1 text-right pr-2 w-[13%]">Last</th>
                 </tr>
@@ -472,41 +378,8 @@ function ItemsPage() {
               <tbody className="divide-y">
                 {rows.map((r) => (
                   <tr key={r.id} className="hover:bg-muted/5">
-                    <td className="py-2 px-1 pl-2 font-medium text-foreground break-words">
-                      {isEditing ? (
-                        <div className="flex flex-col gap-1 pr-1">
-                          <Input
-                            value={r.name}
-                            onChange={(e) => setLocalNames((p) => ({ ...p, [r.id]: e.target.value }))}
-                            className="h-7 text-[10px] p-1 bg-background border-primary/30"
-                          />
-                          <Select value={r.section_id} onValueChange={(val) => setLocalSections((p) => ({ ...p, [r.id]: val }))}>
-                            <SelectTrigger className="h-6 text-[9px] bg-background px-1 py-0 border-primary/20">
-                              <SelectValue placeholder="Sec" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {sections.data?.map((s) => (
-                                <SelectItem key={s.id} value={s.id} className="text-[11px]">{s.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      ) : (
-                        r.name
-                      )}
-                    </td>
-                    <td className="py-2 px-1 text-right font-mono text-muted-foreground whitespace-nowrap">
-                      {isEditing ? (
-                        <Input
-                          type="number"
-                          value={r.gauge_diff}
-                          onChange={(e) => setLocalGauges((p) => ({ ...p, [r.id]: Number(e.target.value) }))}
-                          className="h-7 w-full text-right text-[10px] p-1 bg-background border-primary/30"
-                        />
-                      ) : (
-                        r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff
-                      )}
-                    </td>
+                    <td className="py-2 px-1 pl-2 font-medium text-foreground break-words">{r.name}</td>
+                    <td className="py-2 px-1 text-right font-mono text-muted-foreground whitespace-nowrap">{r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff}</td>
                     <td className="py-2 px-1 text-right font-mono font-bold text-primary bg-primary/[0.01] whitespace-nowrap">{r.today.toFixed(0)}</td>
                     <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
                     <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.party.toFixed(0)}</td>
@@ -522,30 +395,36 @@ function ItemsPage() {
 
       {/* 💻 WEB VIEW: Spacious, High-Information Card System */}
       <div className="hidden md:block space-y-4">
-        {grouped.map(({ section, factory, todayFactory, todaySection, top, rows }) => (
+        {grouped.map(({ section, factory, activeTodayFactory, todayAdder, top, rows }) => (
           <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20 overflow-visible">
             <div className="sticky top-14 z-20 bg-card border-b shadow-xs rounded-t-lg">
               <div className="p-4 pb-2 flex flex-wrap items-center justify-between gap-3">
                 <h3 className="text-base font-bold text-foreground flex items-center gap-2">
                   {section.name}
                   <span className="text-xs font-normal text-muted-foreground flex items-center gap-1">
-                    (<Factory className="h-3 w-3 inline" /> {todayFactory?.name ?? factory?.name} {todayFactory?.basic_rate ?? 0} + {todaySection?.adder ?? section.adder} adder)
+                    (<Factory className="h-3 w-3 inline" /> {activeTodayFactory?.name}: ₹{activeTodayFactory?.basic_rate ?? 0} + ₹{todayAdder} adder)
                   </span>
                 </h3>
-                <div className="flex items-center gap-4 flex-wrap">
-                  {factory && factories.data && factories.data.length > 0 && (
-                    <div className="flex items-center gap-2 text-xs font-normal">
-                      <span className="text-muted-foreground">Today's Rate Factory:</span>
-                      <Select value={pickedTodayFactory[factory.id] ?? factory.id} onValueChange={(v) => setPickedTodayFactory((p) => ({ ...p, [factory.id]: v }))}>
-                        <SelectTrigger className="h-7 w-48 text-xs bg-background"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {factories.data.map((fac) => (
-                            <SelectItem key={fac.id} value={fac.id} className="text-xs">{fac.name} (₹{fac.basic_rate})</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
+                
+                <div className="flex items-center gap-4">
+                  {/* Dynamic Today's Rate Factory configuration drop selector */}
+                  <div className="flex items-center gap-2 text-xs font-normal">
+                    <span className="text-muted-foreground">Today's Factory:</span>
+                    <Select 
+                      value={pickedTodayFactory[section.id] ?? section.factory_id} 
+                      onValueChange={(v) => setPickedTodayFactory((p) => ({ ...p, [section.id]: v }))}
+                    >
+                      <SelectTrigger className="h-7 w-48 text-xs bg-background"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {factories.data?.map((fac) => (
+                          <SelectItem key={fac.id} value={fac.id} className="text-xs">
+                            {fac.name} (₹{fac.basic_rate})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
                   {factory && allOpenSaudas.length > 0 && (
                     <div className="flex items-center gap-2 text-xs font-normal">
                       <span className="text-muted-foreground">Selected Sauda:</span>
@@ -564,7 +443,7 @@ function ItemsPage() {
               
               {/* Header Titles */}
               <div className="px-4 py-2 flex text-xs font-semibold text-muted-foreground bg-muted/20 border-t">
-                <div className="w-[24%] text-left">Item Name & Section Allocation</div>
+                <div className="w-[24%] text-left">Item Name</div>
                 <div className="w-[10%] text-right pr-2">Gauge Diff</div>
                 <div className="w-[13%] text-right">Today's Rate</div>
                 <div className="w-[13%] text-right">Sauda Rate</div>
@@ -578,39 +457,18 @@ function ItemsPage() {
               <div className="divide-y text-sm">
                 {rows.map((r) => (
                   <div key={r.id} className="flex px-4 py-2.5 items-center hover:bg-muted/10 transition-colors">
-                    
-                    {/* Item Name & Section Dropdown Column */}
-                    <div className="w-[24%] text-left font-medium pr-2 text-slate-900">
-                      {isEditing ? (
-                        <div className="flex flex-col gap-1.5 max-w-[90%]">
-                          <Input
-                            value={r.name}
-                            onChange={(e) => setLocalNames((p) => ({ ...p, [r.id]: e.target.value }))}
-                            className="h-7 text-xs bg-background border-primary/40 focus-visible:ring-primary font-medium"
-                          />
-                          <Select value={r.section_id} onValueChange={(val) => setLocalSections((p) => ({ ...p, [r.id]: val }))}>
-                            <SelectTrigger className="h-6 text-[11px] bg-background py-0 border-primary/20">
-                              <SelectValue placeholder="Section Placement" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {sections.data?.map((s) => (
-                                <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      ) : (
-                        r.name
-                      )}
-                    </div>
+                    <div className="w-[24%] text-left font-medium pr-2 text-slate-900">{r.name}</div>
                     
                     {/* Gauge Column */}
                     <div className="w-[10%] text-right text-muted-foreground font-mono pr-2 flex justify-end items-center">
-                      {isEditing ? (
+                      {isEditingGauges ? (
                         <Input
                           type="number"
                           value={r.gauge_diff}
-                          onChange={(e) => setLocalGauges((p) => ({ ...p, [r.id]: Number(e.target.value) }))}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setLocalGauges((p) => ({ ...p, [r.id]: val }));
+                          }}
                           className="h-7 w-16 text-right text-xs p-1 bg-background border-primary/40 focus-visible:ring-primary font-mono font-medium"
                         />
                       ) : (
