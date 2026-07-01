@@ -62,6 +62,7 @@ function RatesPage() {
         name: newFactoryName.trim(),
         basic_rate: Number(newFactoryRate),
         adder: 0,
+        party_adder: 0,
         updated_at: new Date().toISOString(),
       });
       if (error) throw error;
@@ -103,7 +104,7 @@ function RatesPage() {
         <div>
           <h2 className="text-2xl font-bold">Daily Factory Rates</h2>
           <p className="text-sm text-muted-foreground">
-            Update each factory's basic rate & adder. All Today/Sauda/Party rates auto-recompute.
+            Update each factory's basic rate & adders. All Today/Sauda/Party rates auto-recompute.
           </p>
         </div>
         <Button
@@ -128,13 +129,22 @@ function RatesPage() {
           <CardContent className="grid gap-4 sm:grid-cols-3 items-end pb-4">
             <div className="space-y-1">
               <Label htmlFor="fac-name" className="text-xs">Factory Name</Label>
-              <Input id="fac-name" placeholder="e.g. Balaji Steels"
-                value={newFactoryName} onChange={(e) => setNewFactoryName(e.target.value)} />
+              <Input
+                id="fac-name"
+                placeholder="e.g. Balaji Steels"
+                value={newFactoryName}
+                onChange={(e) => setNewFactoryName(e.target.value)}
+              />
             </div>
             <div className="space-y-1">
               <Label htmlFor="fac-rate" className="text-xs">Initial Basic Rate</Label>
-              <Input id="fac-rate" type="number" placeholder="e.g. 42000"
-                value={newFactoryRate} onChange={(e) => setNewFactoryRate(e.target.value)} />
+              <Input
+                id="fac-rate"
+                type="number"
+                placeholder="e.g. 42000"
+                value={newFactoryRate}
+                onChange={(e) => setNewFactoryRate(e.target.value)}
+              />
             </div>
             <Button size="default" onClick={() => addFactory.mutate()} disabled={addFactory.isPending}>
               {addFactory.isPending ? "Creating..." : "Save Factory"}
@@ -148,6 +158,7 @@ function RatesPage() {
           <CardTitle className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-4 flex-wrap">
               <span>Factory Basic Rates</span>
+
               <div className="flex items-center gap-1 border rounded-lg p-1 bg-muted/40 font-normal">
                 <span className="text-xs font-semibold px-2 text-muted-foreground">Bulk Shift:</span>
                 <button type="button" className="h-7 px-2 text-xs rounded bg-background border border-red-200 text-red-600 hover:bg-red-50 font-medium transition-colors" onClick={() => adjustAllRates(-200)}>-200</button>
@@ -160,6 +171,7 @@ function RatesPage() {
                 </button>
               </div>
             </div>
+
             <Button size="sm" onClick={() => saveAllFactories.mutate()} disabled={saveAllFactories.isPending}>
               {saveAllFactories.isPending ? "Saving…" : "Save all"}
             </Button>
@@ -170,8 +182,11 @@ function RatesPage() {
             <div key={f.id} className="border rounded-md p-3">
               <Label className="text-xs">{f.name}</Label>
               <div className="flex gap-2 mt-1">
-                <Input type="number" value={factoryRates[f.id] ?? ""}
-                  onChange={(e) => setFactoryRates(prev => ({ ...prev, [f.id]: e.target.value }))} />
+                <Input
+                  type="number"
+                  value={factoryRates[f.id] ?? ""}
+                  onChange={(e) => setFactoryRates(prev => ({ ...prev, [f.id]: e.target.value }))}
+                />
               </div>
             </div>
           ))}
@@ -188,27 +203,46 @@ function RatesPage() {
 
 function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: () => void }) {
   const [adders, setAdders] = useState<Record<string, string>>({});
+  const [pAdders, setPAdders] = useState<Record<string, string>>({});
+  const [globalPartyAdder, setGlobalPartyAdder] = useState("");
 
   useEffect(() => {
     setAdders((prev) => {
       const next: Record<string, string> = {};
-      for (const f of factories) {
-        next[f.id] = prev[f.id] ?? String(f.adder ?? 0);
-      }
+      for (const f of factories) next[f.id] = prev[f.id] ?? String(f.adder ?? 0);
+      return next;
+    });
+    setPAdders((prev) => {
+      const next: Record<string, string> = {};
+      for (const f of factories) next[f.id] = prev[f.id] ?? String(f.party_adder ?? 0);
       return next;
     });
   }, [factories]);
+
+  const applyGlobalPartyAdder = () => {
+    setPAdders((prev) => {
+      const next: Record<string, string> = {};
+      for (const id of Object.keys(prev)) next[id] = globalPartyAdder;
+      return next;
+    });
+    toast.success("Applied party adder to all factories");
+  };
 
   const saveAll = useMutation({
     mutationFn: async () => {
       const failures: string[] = [];
       for (const f of factories) {
-        const val = Number(adders[f.id]);
-        if (isNaN(val) || val === Number(f.adder ?? 0)) continue;
-        const { error } = await supabase
-          .from("factories")
-          .update({ adder: val, updated_at: new Date().toISOString() })
-          .eq("id", f.id);
+        const aVal = Number(adders[f.id]);
+        const pVal = Number(pAdders[f.id]);
+        const aChanged = !isNaN(aVal) && aVal !== Number(f.adder ?? 0);
+        const pChanged = !isNaN(pVal) && pVal !== Number(f.party_adder ?? 0);
+        if (!aChanged && !pChanged) continue;
+
+        const patch: any = { updated_at: new Date().toISOString() };
+        if (aChanged) patch.adder = aVal;
+        if (pChanged) patch.party_adder = pVal;
+
+        const { error } = await supabase.from("factories").update(patch).eq("id", f.id);
         if (error) failures.push(`${f.name}: ${error.message}`);
       }
       if (failures.length) throw new Error(failures.join(" | "));
@@ -222,9 +256,20 @@ function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: 
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center justify-between gap-3">
           <span>Factory Adders</span>
-          <Button size="sm" onClick={() => saveAll.mutate()} disabled={saveAll.isPending}>
-            {saveAll.isPending ? "Saving…" : "Save all"}
-          </Button>
+          <div className="flex items-center gap-2 text-sm font-normal">
+            <Label className="text-xs">Party Adder (all):</Label>
+            <Input
+              className="w-24"
+              type="number"
+              value={globalPartyAdder}
+              onChange={(e) => setGlobalPartyAdder(e.target.value)}
+              placeholder="e.g. 200"
+            />
+            <Button size="sm" variant="secondary" onClick={applyGlobalPartyAdder}>Apply to all</Button>
+            <Button size="sm" onClick={() => saveAll.mutate()} disabled={saveAll.isPending}>
+              {saveAll.isPending ? "Saving…" : "Save all"}
+            </Button>
+          </div>
         </CardTitle>
       </CardHeader>
       <CardContent className="overflow-x-auto">
@@ -235,23 +280,39 @@ function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: 
               <th className="p-2">Today's Basic</th>
               <th className="p-2">Adder (+)</th>
               <th className="p-2">Today's Rate</th>
+              <th className="p-2">Party Adder (+)</th>
+              <th className="p-2">Party Rate</th>
             </tr>
           </thead>
           <tbody>
             {factories.map((f) => {
               const todayBasic = Number(f.basic_rate ?? 0);
               const adderVal = Number(adders[f.id]) || 0;
+              const pAdderVal = Number(pAdders[f.id]) || 0;
               const todayRate = todayBasic + adderVal;
+              const partyRate = todayRate + pAdderVal;
               return (
                 <tr key={f.id} className="border-b">
                   <td className="p-2 font-medium">{f.name}</td>
                   <td className="p-2 font-mono text-muted-foreground">{todayBasic.toFixed(0)}</td>
                   <td className="p-2">
-                    <Input className="w-24" type="number"
+                    <Input
+                      className="w-24"
+                      type="number"
                       value={adders[f.id] ?? ""}
-                      onChange={(e) => setAdders((prev) => ({ ...prev, [f.id]: e.target.value }))} />
+                      onChange={(e) => setAdders((prev) => ({ ...prev, [f.id]: e.target.value }))}
+                    />
                   </td>
                   <td className="p-2 font-mono font-semibold text-primary">{todayRate.toFixed(0)}</td>
+                  <td className="p-2">
+                    <Input
+                      className="w-24"
+                      type="number"
+                      value={pAdders[f.id] ?? ""}
+                      onChange={(e) => setPAdders((prev) => ({ ...prev, [f.id]: e.target.value }))}
+                    />
+                  </td>
+                  <td className="p-2 font-mono font-semibold">{partyRate.toFixed(0)}</td>
                 </tr>
               );
             })}
