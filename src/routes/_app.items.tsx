@@ -14,7 +14,23 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { List, FileDown, Factory, Sliders } from "lucide-react";
+import { List, FileDown, Factory, Sliders, FileText } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+
+type ColKey = "gauge_diff" | "today" | "sauda" | "party" | "available_qty" | "last_purchase_rate";
+const ALL_COLS: { key: ColKey; label: string }[] = [
+  { key: "gauge_diff", label: "Gauge Diff" },
+  { key: "today", label: "Today Rate" },
+  { key: "sauda", label: "Sauda Rate" },
+  { key: "party", label: "Party Rate" },
+  { key: "available_qty", label: "Stock Qty" },
+  { key: "last_purchase_rate", label: "Last Purchase" },
+];
+const DEFAULT_PDF_COLS: ColKey[] = ["available_qty", "last_purchase_rate"];
 
 export const Route = createFileRoute("/_app/items")({
   component: ItemsPage,
