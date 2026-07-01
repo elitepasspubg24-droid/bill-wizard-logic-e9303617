@@ -63,36 +63,36 @@ function ItemsPage() {
 
   const grouped = useMemo(() => {
     if (!sections.data || !items.data || !factories.data) return [];
-    const fmap = new Map(factories.data.map((f) => [f.id, f]));
+    const fmap = new Map(factories.data.map((f: any) => [f.id, f]));
 
     return sections.data.map((s) => {
-      // 1. Get chosen factory (from dropdown, else section's default factory)
+      // ---- TODAY: uses the picked "Today's Factory" ----
       const activeTodayFactoryId = pickedTodayFactory[s.id] ?? s.factory_id;
       const activeTodayFactory: any = fmap.get(activeTodayFactoryId);
       const activeFacBasic = Number(activeTodayFactory?.basic_rate ?? 0);
-
-      // 2. Factory-level adder (now lives on factories table, NOT sections)
       const activeFacAdder = Number(activeTodayFactory?.adder ?? 0);
+      const activePartyAdder = Number(activeTodayFactory?.party_adder ?? 0);
 
-      // 3. Base Today Rate = Selected Factory Basic + Factory Adder
       const baseToday = activeFacBasic + activeFacAdder;
+      const baseParty = baseToday + activePartyAdder;
 
-      // Sauda & Party logic (party_basic still per-section)
-      const topSauda = allOpenSaudas.find(so => so.id === pickedSauda[s.id] || so.factory_id === activeTodayFactoryId);
-      const baseSauda = topSauda ? topSauda.basic + activeFacAdder : null;
-      const baseParty = Number(s.party_basic ?? 0);
+      // ---- SAUDA: uses the SAUDA's own factory (independent from Today Factory) ----
+      const topSauda = allOpenSaudas.find(
+        (so) => so.id === pickedSauda[s.id] || so.factory_id === activeTodayFactoryId
+      );
+      const saudaFactory: any = topSauda ? fmap.get(topSauda.factory_id) : null;
+      const saudaFacAdder = Number(saudaFactory?.adder ?? 0);
+      const baseSauda = topSauda ? topSauda.basic + saudaFacAdder : null;
 
       const rows = items.data!
         .filter((i) => i.section_id === s.id)
         .filter((i) => !q || i.name.toLowerCase().includes(q.toLowerCase()))
         .map((i) => {
-          // 4. Item's gauge difference
-          const gaugeDiff = localGauges[i.id] !== undefined ? localGauges[i.id] : Number(i.gauge_diff ?? 0);
-
+          const gaugeDiff =
+            localGauges[i.id] !== undefined ? localGauges[i.id] : Number(i.gauge_diff ?? 0);
           return {
             ...i,
             gauge_diff: gaugeDiff,
-            // Today's Rate = Selected Factory Today Rate + Factory Adder + Gauge Diff
             today: baseToday + gaugeDiff,
             sauda: baseSauda !== null ? baseSauda + gaugeDiff : null,
             party: baseParty + gaugeDiff,
@@ -104,11 +104,15 @@ function ItemsPage() {
         activeTodayFactory,
         activeFacBasic,
         activeFacAdder,
+        activePartyAdder,
         topSauda,
+        saudaFactory,
+        saudaFacAdder,
         rows,
       };
     }).filter((g) => g.rows.length > 0);
   }, [factories.data, sections.data, items.data, pickedTodayFactory, pickedSauda, allOpenSaudas, q, localGauges]);
+
   const handleExportCSV = () => {
     let csvContent = "data:text/csv;charset=utf-8,";
     grouped.forEach(({ section, rows }) => {
@@ -193,10 +197,10 @@ function ItemsPage() {
         <div>
           <h2 className="text-2xl font-bold">Items Matrix</h2>
         </div>
-        
+
         <div className="flex items-center gap-2 ml-auto">
           <Input placeholder="Search..." value={q} onChange={(e) => setQ(e.target.value)} className="w-36 md:w-48 h-9" />
-          
+
           <Button onClick={() => setIsEditingGauges(!isEditingGauges)} variant={isEditingGauges ? "default" : "outline"} size="sm" className="h-9 hidden md:flex">
             <Sliders className="mr-2 h-4 w-4" /> {isEditingGauges ? "Finish Editing" : "Edit Gauges"}
           </Button>
@@ -263,36 +267,44 @@ function ItemsPage() {
                           </div>
                         </div>
                         <div className="flex flex-col gap-1 items-end">
-                          <Select 
-                            value={pickedTodayFactory[section.id] ?? section.factory_id} 
+                          <Select
+                            value={pickedTodayFactory[section.id] ?? section.factory_id}
                             onValueChange={(v) => setPickedTodayFactory(p => ({ ...p, [section.id]: v }))}
                           >
                             <SelectTrigger className="h-7 w-36 text-[10px] bg-background px-2 py-0 shadow-xs">
                               <SelectValue placeholder="Today Factory" />
                             </SelectTrigger>
                             <SelectContent>
-                              {factories.data?.map((fac) => (
-                                <SelectItem key={fac.id} value={fac.id} className="text-[11px]">
-                                  {fac.name} (₹{fac.basic_rate})
-                                </SelectItem>
-                              ))}
+                              {factories.data?.map((fac: any) => {
+                                const today = Number(fac.basic_rate ?? 0) + Number(fac.adder ?? 0);
+                                return (
+                                  <SelectItem key={fac.id} value={fac.id} className="text-[11px]">
+                                    {fac.name} (Today: ₹{today})
+                                  </SelectItem>
+                                );
+                              })}
                             </SelectContent>
                           </Select>
-                          
+
                           {allOpenSaudas.length > 0 && (
-                            <Select 
-                              value={pickedSauda[section.id] ?? topSauda?.id ?? ""} 
+                            <Select
+                              value={pickedSauda[section.id] ?? topSauda?.id ?? ""}
                               onValueChange={(v) => setPickedSauda(p => ({ ...p, [section.id]: v }))}
                             >
                               <SelectTrigger className="h-7 w-36 text-[10px] bg-background px-2 py-0 shadow-xs">
                                 <SelectValue placeholder="Select Sauda" />
                               </SelectTrigger>
                               <SelectContent>
-                                {allOpenSaudas.map((o) => (
-                                  <SelectItem key={o.id} value={o.id} className="text-[11px]">
-                                    {o.party} (B: {o.basic})
-                                  </SelectItem>
-                                ))}
+                                {allOpenSaudas.map((o) => {
+                                  const fac: any = factories.data?.find((f: any) => f.id === o.factory_id);
+                                  const facAdder = Number(fac?.adder ?? 0);
+                                  const saudaToday = Number(o.basic) + facAdder;
+                                  return (
+                                    <SelectItem key={o.id} value={o.id} className="text-[11px]">
+                                      {o.party} (Today: ₹{saudaToday})
+                                    </SelectItem>
+                                  );
+                                })}
                               </SelectContent>
                             </Select>
                           )}
@@ -341,17 +353,24 @@ function ItemsPage() {
                     ({activeTodayFactory?.name} Basic: ₹{activeFacBasic} + Adder: ₹{activeFacAdder})
                   </span>
                 </div>
-                
+
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2 text-xs font-normal">
                     <span className="text-muted-foreground">Today's Factory:</span>
-                    <Select 
-                      value={pickedTodayFactory[section.id] ?? section.factory_id} 
+                    <Select
+                      value={pickedTodayFactory[section.id] ?? section.factory_id}
                       onValueChange={(v) => setPickedTodayFactory(p => ({ ...p, [section.id]: v }))}
                     >
                       <SelectTrigger className="h-8 w-48 text-xs bg-background"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {factories.data?.map(f => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}
+                        {factories.data?.map((f: any) => {
+                          const today = Number(f.basic_rate ?? 0) + Number(f.adder ?? 0);
+                          return (
+                            <SelectItem key={f.id} value={f.id}>
+                              {f.name} (Today: ₹{today})
+                            </SelectItem>
+                          );
+                        })}
                       </SelectContent>
                     </Select>
                   </div>
@@ -359,24 +378,29 @@ function ItemsPage() {
                   {allOpenSaudas.length > 0 && (
                     <div className="flex items-center gap-2 text-xs font-normal">
                       <span className="text-muted-foreground">Selected Sauda:</span>
-                      <Select 
-                        value={pickedSauda[section.id] ?? topSauda?.id ?? ""} 
+                      <Select
+                        value={pickedSauda[section.id] ?? topSauda?.id ?? ""}
                         onValueChange={(v) => setPickedSauda(p => ({ ...p, [section.id]: v }))}
                       >
                         <SelectTrigger className="h-8 w-64 text-xs bg-background"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          {allOpenSaudas.map((o) => (
-                            <SelectItem key={o.id} value={o.id} className="text-xs">
-                              {o.party} (B: {o.basic}) — {o.pending}T
-                            </SelectItem>
-                          ))}
+                          {allOpenSaudas.map((o) => {
+                            const fac: any = factories.data?.find((f: any) => f.id === o.factory_id);
+                            const facAdder = Number(fac?.adder ?? 0);
+                            const saudaToday = Number(o.basic) + facAdder;
+                            return (
+                              <SelectItem key={o.id} value={o.id} className="text-xs">
+                                {o.party} (Today: ₹{saudaToday}) — {o.pending}T
+                              </SelectItem>
+                            );
+                          })}
                         </SelectContent>
                       </Select>
                     </div>
                   )}
                 </div>
               </div>
-              
+
               <div className="px-4 py-2 flex text-xs font-semibold text-muted-foreground bg-muted/20 border-t">
                 <div className="w-[24%] text-left">Item Name</div>
                 <div className="w-[10%] text-right pr-2">Gauge Diff</div>
@@ -393,7 +417,7 @@ function ItemsPage() {
                 {rows.map((r) => (
                   <div key={r.id} className="flex px-4 py-2.5 items-center hover:bg-muted/10 transition-colors">
                     <div className="w-[24%] text-left font-medium pr-2 text-slate-900">{r.name}</div>
-                    
+
                     <div className="w-[10%] text-right text-muted-foreground font-mono pr-2 flex justify-end items-center">
                       {isEditingGauges ? (
                         <Input
