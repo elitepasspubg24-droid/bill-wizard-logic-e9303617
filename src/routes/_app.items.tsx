@@ -53,6 +53,7 @@ function ItemsPage() {
   
   const [q, setQ] = useState("");
   const [pickedSauda, setPickedSauda] = useState<Record<string, string>>({});
+  const [pickedTodayFactory, setPickedTodayFactory] = useState<Record<string, string>>({});
   const [isEditing, setIsEditing] = useState(false);
   
   // Local state modifiers for inline edits
@@ -115,9 +116,28 @@ function ItemsPage() {
 
     const list = sections.data.map((s) => {
       const f = fmap.get(s.factory_id);
-      const baseToday = (f?.basic_rate ?? 0) + Number(s.adder);
+      
+      // Resolve chosen factory for Today's rate
+      const pickedTodayFacId = pickedTodayFactory[s.factory_id];
+      const todayFactory = factories.data.find((x) => x.id === pickedTodayFacId) || f;
+      
+      // Look up corresponding section name under that factory to fetch the right adder
+      const todaySection = sections.data.find(
+        (sec) => sec.factory_id === todayFactory?.id && sec.name.toLowerCase() === s.name.toLowerCase()
+      ) || s;
+      
+      const baseToday = (todayFactory?.basic_rate ?? 0) + Number(todaySection.adder);
+      
+      // Resolve chosen Sauda
       const top = chosenByFactory.get(s.factory_id);
-      const baseSauda = top ? top.basic + Number(s.adder) : null;
+      
+      // Look up corresponding section name under the Sauda's factory to fetch the right adder
+      const saudaFactoryId = top?.factory_id;
+      const saudaSection = saudaFactoryId 
+        ? (sections.data.find((sec) => sec.factory_id === saudaFactoryId && sec.name.toLowerCase() === s.name.toLowerCase()) || s)
+        : s;
+        
+      const baseSauda = top ? top.basic + Number(saudaSection.adder) : null;
       const baseParty = Number(s.party_basic);
       
       const rows = unifiedItems
@@ -131,7 +151,7 @@ function ItemsPage() {
             party: baseParty + i.gauge_diff,
           };
         });
-      return { section: s, factory: f, top, rows };
+      return { section: s, factory: f, todayFactory, todaySection, top, rows };
     }).filter((g) => g.rows.length > 0 || isEditing);
 
     // Shifts any section containing "ms pipe" in its title dynamically to the bottom
@@ -142,7 +162,7 @@ function ItemsPage() {
       if (!aIsPipe && bIsPipe) return -1;
       return 0;
     });
-  }, [factories.data, sections.data, items.data, newItems, chosenByFactory, q, localGauges, localNames, localSections, isEditing]);
+  }, [factories.data, sections.data, items.data, newItems, chosenByFactory, pickedTodayFactory, q, localGauges, localNames, localSections, isEditing]);
 
   const handleExportCSV = () => {
     let csvContent = "data:text/csv;charset=utf-8,";
@@ -190,7 +210,7 @@ function ItemsPage() {
     doc.setTextColor(0);
 
     let cursorY = 78;
-    grouped.forEach(({ section, factory, rows }, idx) => {
+    grouped.forEach(({ section, todayFactory, rows }, idx) => {
       if (idx > 0) cursorY += 18; // spacing between sections
       if (cursorY > doc.internal.pageSize.getHeight() - 80) {
         doc.addPage();
@@ -202,7 +222,7 @@ function ItemsPage() {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
       doc.setTextColor(110);
-      if (factory) doc.text(`${factory.name}`, 40, cursorY + 13);
+      if (todayFactory) doc.text(`${todayFactory.name}`, 40, cursorY + 13);
       doc.setTextColor(0);
       cursorY += 20;
 
@@ -371,7 +391,7 @@ function ItemsPage() {
 
       {/* 📱 MOBILE VIEW: Compact Continuous Spreadsheet Matrix */}
       <div className="block md:hidden space-y-4">
-        {grouped.map(({ section, factory, top, rows }) => (
+        {grouped.map(({ section, factory, todayFactory, todaySection, top, rows }) => (
           <div key={section.id} className="border rounded-lg overflow-visible bg-background shadow-sm">
             <table className="w-full border-collapse text-left text-[11px] table-fixed">
               <thead className="bg-slate-50 sticky top-0 z-10 border-b backdrop-blur-md shadow-xs">
@@ -383,12 +403,29 @@ function ItemsPage() {
                         <div>
                           <div className="text-xs font-bold text-foreground">{section.name}</div>
                           <div className="text-[10px] font-normal text-muted-foreground">
-                            {factory?.name}: {factory?.basic_rate ?? 0} + {section.adder} add
+                            {todayFactory?.name ?? factory?.name}: {todayFactory?.basic_rate ?? 0} + {todaySection?.adder ?? section.adder} add
                           </div>
                         </div>
-                        {/* Interactive Sauda Dropdown Selection for Mobile */}
-                        {factory && allOpenSaudas.length > 0 && (
-                          <div className="flex items-center gap-1">
+                        {/* Interactive Dropdown Selectors for Mobile */}
+                        <div className="flex flex-col gap-1 items-end">
+                          {factory && factories.data && factories.data.length > 0 && (
+                            <Select 
+                              value={pickedTodayFactory[factory.id] ?? factory.id} 
+                              onValueChange={(v) => setPickedTodayFactory((p) => ({ ...p, [factory.id]: v }))}
+                            >
+                              <SelectTrigger className="h-7 w-40 text-[10px] bg-background px-2 py-0 shadow-xs">
+                                <SelectValue placeholder="Select Today Factory" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {factories.data.map((fac) => (
+                                  <SelectItem key={fac.id} value={fac.id} className="text-[11px]">
+                                    Today: {fac.name} (₹{fac.basic_rate})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                          {factory && allOpenSaudas.length > 0 && (
                             <Select 
                               value={pickedSauda[factory.id] ?? top?.id ?? ""} 
                               onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}
@@ -404,8 +441,8 @@ function ItemsPage() {
                                 ))}
                               </SelectContent>
                             </Select>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </div>
                       
                       {/* Detailed Metadata Badges with Sauda Basic Rate */}
@@ -485,29 +522,44 @@ function ItemsPage() {
 
       {/* 💻 WEB VIEW: Spacious, High-Information Card System */}
       <div className="hidden md:block space-y-4">
-        {grouped.map(({ section, factory, top, rows }) => (
+        {grouped.map(({ section, factory, todayFactory, todaySection, top, rows }) => (
           <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20 overflow-visible">
             <div className="sticky top-14 z-20 bg-card border-b shadow-xs rounded-t-lg">
               <div className="p-4 pb-2 flex flex-wrap items-center justify-between gap-3">
                 <h3 className="text-base font-bold text-foreground flex items-center gap-2">
                   {section.name}
                   <span className="text-xs font-normal text-muted-foreground flex items-center gap-1">
-                    (<Factory className="h-3 w-3 inline" /> {factory?.name} {factory?.basic_rate ?? 0} + {section.adder} adder)
+                    (<Factory className="h-3 w-3 inline" /> {todayFactory?.name ?? factory?.name} {todayFactory?.basic_rate ?? 0} + {todaySection?.adder ?? section.adder} adder)
                   </span>
                 </h3>
-                {factory && allOpenSaudas.length > 0 && (
-                  <div className="flex items-center gap-2 text-xs font-normal">
-                    <span className="text-muted-foreground">Selected Sauda:</span>
-                    <Select value={pickedSauda[factory.id] ?? top?.id ?? ""} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
-                      <SelectTrigger className="h-7 w-72 text-xs bg-background"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {allOpenSaudas.map((o) => (
-                          <SelectItem key={o.id} value={o.id} className="text-xs">{o.party} — basic {o.basic} ({o.pending} pending)</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
+                <div className="flex items-center gap-4 flex-wrap">
+                  {factory && factories.data && factories.data.length > 0 && (
+                    <div className="flex items-center gap-2 text-xs font-normal">
+                      <span className="text-muted-foreground">Today's Rate Factory:</span>
+                      <Select value={pickedTodayFactory[factory.id] ?? factory.id} onValueChange={(v) => setPickedTodayFactory((p) => ({ ...p, [factory.id]: v }))}>
+                        <SelectTrigger className="h-7 w-48 text-xs bg-background"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {factories.data.map((fac) => (
+                            <SelectItem key={fac.id} value={fac.id} className="text-xs">{fac.name} (₹{fac.basic_rate})</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  {factory && allOpenSaudas.length > 0 && (
+                    <div className="flex items-center gap-2 text-xs font-normal">
+                      <span className="text-muted-foreground">Selected Sauda:</span>
+                      <Select value={pickedSauda[factory.id] ?? top?.id ?? ""} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
+                        <SelectTrigger className="h-7 w-72 text-xs bg-background"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {allOpenSaudas.map((o) => (
+                            <SelectItem key={o.id} value={o.id} className="text-xs">{o.party} — basic {o.basic} ({o.pending} pending)</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
               </div>
               
               {/* Header Titles */}
