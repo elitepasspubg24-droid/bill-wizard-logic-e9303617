@@ -1,5 +1,3 @@
-Here is the complete full code for src/routes/_app.items.tsx with all three fixes applied.
-
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
