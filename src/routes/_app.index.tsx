@@ -18,7 +18,7 @@ export const Route = createFileRoute("/_app/")({
 function RatesPage() {
   const qc = useQueryClient();
   const factories = useQuery({ queryKey: ["factories"], queryFn: fetchFactories });
-  const sections = useQuery({ queryKey: ["sections"], queryFn: fetchSections }); // Kept for mapping if needed
+  const sections = useQuery({ queryKey: ["sections"], queryFn: fetchSections });
 
   const [factoryRates, setFactoryRates] = useState<Record<string, string>>({});
   const [showAddForm, setShowAddForm] = useState(false);
@@ -35,7 +35,6 @@ function RatesPage() {
     }
   }, [factories.data]);
 
-  // Bulk shift controls
   const adjustAllRates = (amount: number) => {
     setFactoryRates((prev) => {
       const next: Record<string, string> = { ...prev };
@@ -59,7 +58,6 @@ function RatesPage() {
     }
   };
 
-  // Add new factory mutation
   const addFactory = useMutation({
     mutationFn: async () => {
       if (!newFactoryName.trim() || !newFactoryRate.trim()) {
@@ -70,9 +68,6 @@ function RatesPage() {
         .insert({
           name: newFactoryName.trim(),
           basic_rate: Number(newFactoryRate),
-          adder: 0,
-          gauge_diff: 0,
-          party_adder: 0,
           updated_at: new Date().toISOString(),
         });
       if (error) throw error;
@@ -129,7 +124,6 @@ function RatesPage() {
         </Button>
       </div>
 
-      {/* Add Factory Section */}
       {showAddForm && (
         <Card className="border-primary/20 bg-muted/10">
           <CardHeader className="py-3">
@@ -158,18 +152,13 @@ function RatesPage() {
                 onChange={(e) => setNewFactoryRate(e.target.value)}
               />
             </div>
-            <Button 
-              size="default" 
-              onClick={() => addFactory.mutate()} 
-              disabled={addFactory.isPending}
-            >
+            <Button size="default" onClick={() => addFactory.mutate()} disabled={addFactory.isPending}>
               {addFactory.isPending ? "Creating..." : "Save Factory"}
             </Button>
           </CardContent>
         </Card>
       )}
 
-      {/* Primary Basic Rates Cards Grid */}
       <Card>
         <CardHeader>
           <CardTitle className="flex flex-wrap items-center justify-between gap-4">
@@ -210,71 +199,71 @@ function RatesPage() {
         </CardContent>
       </Card>
 
-      {/* RESTORED: The original full table layout with factory settings */}
-      <FactoriesCard
+      <SectionsCard
+        sections={sections.data ?? []}
         factories={factories.data ?? []}
-        onSaved={() => qc.invalidateQueries({ queryKey: ["factories"] })}
+        onSaved={() => qc.invalidateQueries({ queryKey: ["sections"] })}
       />
     </div>
   );
 }
 
-type FactoryRowState = { adder: string; gaugeDiff: string; pAdder: string };
+type RowState = { adder: string; pAdder: string };
 
-function FactoriesCard({ factories, onSaved }: { factories: any[]; onSaved: () => void }) {
+function SectionsCard({ sections, factories, onSaved }: { sections: any[]; factories: any[]; onSaved: () => void }) {
   const [globalPartyAdder, setGlobalPartyAdder] = useState("");
-  const [rows, setRows] = useState<Record<string, FactoryRowState>>({});
+  const [rows, setRows] = useState<Record<string, RowState>>({});
 
   useEffect(() => {
     setRows((prev) => {
-      const next: Record<string, FactoryRowState> = {};
-      for (const f of factories) {
-        const existing = prev[f.id];
-        next[f.id] = existing ?? {
-          adder: String(f.adder ?? "0"),
-          gaugeDiff: String(f.gauge_diff ?? "0"),
-          pAdder: String(f.party_adder ?? "0"),
+      const next: Record<string, RowState> = {};
+      for (const s of sections) {
+        const existing = prev[s.id];
+        const factory = factories.find((f: any) => f.id === s.factory_id);
+        const todayBasic = Number(factory?.basic_rate ?? 0);
+        const derivedPartyAdder = Number(s.party_basic) - todayBasic - Number(s.adder);
+        next[s.id] = existing ?? {
+          adder: String(s.adder),
+          pAdder: Number.isFinite(derivedPartyAdder) ? String(derivedPartyAdder) : "0",
         };
       }
       return next;
     });
-  }, [factories]);
+  }, [sections, factories]);
 
-  const updateRow = (id: string, patch: Partial<FactoryRowState>) =>
+  const updateRow = (id: string, patch: Partial<RowState>) =>
     setRows((r) => ({ ...r, [id]: { ...r[id], ...patch } }));
 
   const applyGlobal = () => {
     setRows((r) => {
-      const next: Record<string, FactoryRowState> = {};
+      const next: Record<string, RowState> = {};
       for (const id of Object.keys(r)) next[id] = { ...r[id], pAdder: globalPartyAdder };
       return next;
     });
-    toast.success("Applied to all factories");
+    toast.success("Applied to all sections");
   };
 
   const saveAll = useMutation({
     mutationFn: async () => {
       const failures: string[] = [];
-      for (const f of factories) {
-        const r = rows[f.id];
+      for (const s of sections) {
+        const r = rows[s.id];
         if (!r) continue;
+        const factory = factories.find((f: any) => f.id === s.factory_id);
+        const todayBasic = Number(factory?.basic_rate ?? 0);
         const adder = Number(r.adder) || 0;
-        const gaugeDiff = Number(r.gaugeDiff) || 0;
         const pAdder = Number(r.pAdder) || 0;
-
+        
+        // Correctly updates the sections table
         const { error } = await supabase
-          .from("factories")
-          .update({ 
-            adder, 
-            gauge_diff: gaugeDiff, 
-            party_adder: pAdder 
-          })
-          .eq("id", f.id);
-        if (error) failures.push(`${f.name}: ${error.message}`);
+          .from("sections")
+          .update({ adder, party_basic: todayBasic + adder + pAdder })
+          .eq("id", s.id);
+        if (error) failures.push(`${s.name}: ${error.message}`);
       }
       if (failures.length) throw new Error(failures.join(" | "));
     },
-    onSuccess: () => { toast.success("All factory values saved"); onSaved(); },
+    onSuccess: () => { toast.success("All sections saved"); onSaved(); },
     onError: (e: any) => toast.error(e.message),
   });
 
@@ -282,7 +271,7 @@ function FactoriesCard({ factories, onSaved }: { factories: any[]; onSaved: () =
     <Card>
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center justify-between gap-3">
-          <span>Daily Rates & Matrix Adders</span>
+          <span>Section Adders</span>
           <div className="flex items-center gap-2 text-sm font-normal">
             <Label className="text-xs">Party Adder (all):</Label>
             <Input
@@ -303,40 +292,35 @@ function FactoriesCard({ factories, onSaved }: { factories: any[]; onSaved: () =
         <table className="w-full text-sm">
           <thead className="border-b">
             <tr className="text-left">
+              <th className="p-2">Section</th>
               <th className="p-2">Factory</th>
               <th className="p-2">Today's Basic</th>
               <th className="p-2">Adder (+)</th>
-              <th className="p-2">Gauge Diff (+)</th>
               <th className="p-2">Today's Rate</th>
               <th className="p-2">Party Adder (+)</th>
               <th className="p-2">Party Basic</th>
             </tr>
           </thead>
           <tbody>
-            {factories.map((f) => {
-              const r = rows[f.id] ?? { adder: "0", gaugeDiff: "0", pAdder: "0" };
-              const todayBasic = Number(f.basic_rate ?? 0);
-              
-              // Computation: Factory Selected + Adder + Gauge Difference
-              const todayRate = todayBasic + (Number(r.adder) || 0) + (Number(r.gaugeDiff) || 0);
+            {sections.map((s) => {
+              const factory = factories.find((f: any) => f.id === s.factory_id);
+              const r = rows[s.id] ?? { adder: "0", pAdder: "0" };
+              const todayBasic = Number(factory?.basic_rate ?? 0);
+              const todayRate = todayBasic + (Number(r.adder) || 0);
               const partyBasic = todayRate + (Number(r.pAdder) || 0);
-              
               return (
-                <tr key={f.id} className="border-b hover:bg-muted/40 transition-colors">
-                  <td className="p-2 font-medium">{f.name}</td>
+                <tr key={s.id} className="border-b">
+                  <td className="p-2 font-medium">{s.name}</td>
+                  <td className="p-2 text-muted-foreground">{factory?.name ?? "—"}</td>
                   <td className="p-2 font-mono text-muted-foreground">{todayBasic.toFixed(0)}</td>
                   <td className="p-2">
-                    <Input className="w-24 mx-auto" type="number" value={r.adder}
-                      onChange={(e) => updateRow(f.id, { adder: e.target.value })} />
-                  </td>
-                  <td className="p-2">
-                    <Input className="w-24 mx-auto" type="number" value={r.gaugeDiff}
-                      onChange={(e) => updateRow(f.id, { gaugeDiff: e.target.value })} />
+                    <Input className="w-24" type="number" value={r.adder}
+                      onChange={(e) => updateRow(s.id, { adder: e.target.value })} />
                   </td>
                   <td className="p-2 font-mono font-semibold text-primary">{todayRate.toFixed(0)}</td>
                   <td className="p-2">
-                    <Input className="w-24 mx-auto" type="number" value={r.pAdder}
-                      onChange={(e) => updateRow(f.id, { pAdder: e.target.value })} />
+                    <Input className="w-24" type="number" value={r.pAdder}
+                      onChange={(e) => updateRow(s.id, { pAdder: e.target.value })} />
                   </td>
                   <td className="p-2 font-mono font-semibold">{partyBasic.toFixed(0)}</td>
                 </tr>
