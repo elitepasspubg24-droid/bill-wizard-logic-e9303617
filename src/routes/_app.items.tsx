@@ -47,6 +47,7 @@ function ItemsPage() {
   const [pickedSauda, setPickedSauda] = useState<Record<string, string>>({});
   const [isEditingGauges, setIsEditingGauges] = useState(false);
   const [localGauges, setLocalGauges] = useState<Record<string, number>>({});
+  const [pdfCols, setPdfCols] = useState<ColKey[]>(DEFAULT_PDF_COLS);
 
   const allOpenSaudas = useMemo(() => {
     const list: any[] = [];
