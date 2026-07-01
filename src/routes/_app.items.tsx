@@ -14,7 +14,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { List, FileDown, RotateCcw, Factory } from "lucide-react";
+import { List, FileDown, Factory, Sliders } from "lucide-react";
 
 export const Route = createFileRoute("/_app/items")({
   component: ItemsPage,
@@ -29,7 +29,8 @@ function ItemsPage() {
   
   const [q, setQ] = useState("");
   const [pickedSauda, setPickedSauda] = useState<Record<string, string>>({});
-  const [rateOffset, setRateOffset] = useState<number>(0);
+  const [isEditingGauges, setIsEditingGauges] = useState(false);
+  const [localGauges, setLocalGauges] = useState<Record<string, number>>({});
 
   const allOpenSaudas = useMemo(() => {
     const list: any[] = [];
@@ -62,22 +63,26 @@ function ItemsPage() {
     const fmap = new Map(factories.data.map((f) => [f.id, f]));
     return sections.data.map((s) => {
       const f = fmap.get(s.factory_id);
-      const baseToday = (f?.basic_rate ?? 0) + Number(s.adder) + rateOffset;
+      const baseToday = (f?.basic_rate ?? 0) + Number(s.adder);
       const top = chosenByFactory.get(s.factory_id);
       const baseSauda = top ? top.basic + Number(s.adder) : null;
       const baseParty = Number(s.party_basic);
       const rows = items
         .data!.filter((i) => i.section_id === s.id)
         .filter((i) => !q || i.name.toLowerCase().includes(q.toLowerCase()))
-        .map((i) => ({
-          ...i,
-          today: baseToday + Number(i.gauge_diff),
-          sauda: baseSauda === null ? null : baseSauda + Number(i.gauge_diff),
-          party: baseParty + Number(i.gauge_diff),
-        }));
+        .map((i) => {
+          const currentGaugeDiff = localGauges[i.id] !== undefined ? localGauges[i.id] : Number(i.gauge_diff);
+          return {
+            ...i,
+            gauge_diff: currentGaugeDiff,
+            today: baseToday + currentGaugeDiff,
+            sauda: baseSauda === null ? null : baseSauda + currentGaugeDiff,
+            party: baseParty + currentGaugeDiff,
+          };
+        });
       return { section: s, factory: f, top, rows };
     }).filter((g) => g.rows.length > 0);
-  }, [factories.data, sections.data, items.data, chosenByFactory, q, rateOffset]);
+  }, [factories.data, sections.data, items.data, chosenByFactory, q, localGauges]);
 
   const handleExportCSV = () => {
     let csvContent = "data:text/csv;charset=utf-8,";
@@ -105,30 +110,28 @@ function ItemsPage() {
         <div>
           <h2 className="text-xl md:text-2xl font-bold tracking-tight">Items Matrix</h2>
           <p className="text-xs md:text-sm text-muted-foreground hidden sm:block">
-            Live calculations incorporating baseline offsets, section adders, and gauge variations.
+            Live calculations incorporating baseline configuration rules, section adders, and gauge variations.
           </p>
         </div>
         
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Quick Rate Adjuster Control Box */}
-          <div className="flex items-center gap-1 border rounded-lg p-1 bg-muted/40 text-xs">
-            <span className="px-1.5 font-semibold text-muted-foreground">Shift Baseline:</span>
-            <button className="h-7 px-2 rounded bg-background border border-red-200 text-red-600 hover:bg-red-50 text-xs font-medium" onClick={() => setRateOffset(p => p - 100)}>-100</button>
-            <button className="h-7 px-2 rounded bg-background border border-emerald-200 text-emerald-600 hover:bg-emerald-50 text-xs font-medium" onClick={() => setRateOffset(p => p + 100)}>+100</button>
-            {rateOffset !== 0 && (
-              <button className="h-7 px-2 rounded bg-amber-50 border border-amber-200 text-amber-700 font-bold flex items-center gap-1" onClick={() => setRateOffset(0)}>
-                <RotateCcw className="h-3 w-3" /> Clr ({rateOffset > 0 ? `+${rateOffset}` : rateOffset})
-              </button>
-            )}
-          </div>
+        <div className="flex items-center gap-2 ml-auto">
+          <Input placeholder="Search item…" value={q} onChange={(e) => setQ(e.target.value)} className="w-36 md:w-48 h-9 text-sm" />
+          
+          {/* Web-Only Edit Gauges Activation Key */}
+          <Button 
+            onClick={() => setIsEditingGauges(!isEditingGauges)} 
+            variant={isEditingGauges ? "default" : "outline"} 
+            size="sm" 
+            className="hidden md:flex gap-2 h-9 text-xs"
+          >
+            <Sliders className="h-4 w-4" />
+            <span>{isEditingGauges ? "Finish Editing" : "Edit Gauges"}</span>
+          </Button>
 
-          <div className="flex items-center gap-2">
-            <Input placeholder="Search item…" value={q} onChange={(e) => setQ(e.target.value)} className="w-36 md:w-48 h-9 text-sm" />
-            <Button onClick={handleExportCSV} variant="outline" size="sm" className="gap-2 h-9 text-xs">
-              <FileDown className="h-4 w-4" />
-              <span className="hidden sm:inline">Export</span>
-            </Button>
-          </div>
+          <Button onClick={handleExportCSV} variant="outline" size="sm" className="gap-2 h-9 text-xs">
+            <FileDown className="h-4 w-4" />
+            <span className="hidden sm:inline">Export</span>
+          </Button>
         </div>
       </div>
 
@@ -146,7 +149,7 @@ function ItemsPage() {
                         <div>
                           <div className="text-xs font-bold text-foreground">{section.name}</div>
                           <div className="text-[10px] font-normal text-muted-foreground">
-                            {factory?.name}: {(factory?.basic_rate ?? 0) + rateOffset} + {section.adder} add
+                            {factory?.name}: {factory?.basic_rate ?? 0} + {section.adder} add
                           </div>
                         </div>
                         {/* Interactive Sauda Dropdown Selection for Mobile */}
@@ -222,7 +225,7 @@ function ItemsPage() {
                 <h3 className="text-base font-bold text-foreground flex items-center gap-2">
                   {section.name}
                   <span className="text-xs font-normal text-muted-foreground flex items-center gap-1">
-                    (<Factory className="h-3 w-3 inline" /> {factory?.name} {((factory?.basic_rate ?? 0) + rateOffset)} + {section.adder} adder)
+                    (<Factory className="h-3 w-3 inline" /> {factory?.name} {factory?.basic_rate ?? 0} + {section.adder} adder)
                   </span>
                 </h3>
                 {factory && allOpenSaudas.length > 0 && (
@@ -243,7 +246,7 @@ function ItemsPage() {
               {/* Header Titles */}
               <div className="px-4 py-2 flex text-xs font-semibold text-muted-foreground bg-muted/20 border-t">
                 <div className="w-[24%] text-left">Item Name</div>
-                <div className="w-[10%] text-right">Gauge Diff</div>
+                <div className="w-[10%] text-right pr-2">Gauge Diff</div>
                 <div className="w-[13%] text-right">Today's Rate</div>
                 <div className="w-[13%] text-right">Sauda Rate</div>
                 <div className="w-[13%] text-right">Party Rate</div>
@@ -257,12 +260,39 @@ function ItemsPage() {
                 {rows.map((r) => (
                   <div key={r.id} className="flex px-4 py-2.5 items-center hover:bg-muted/10 transition-colors">
                     <div className="w-[24%] text-left font-medium pr-2 text-slate-900">{r.name}</div>
-                    <div className="w-[10%] text-right text-muted-foreground font-mono">{r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff}</div>
-                    <div className="w-[13%] text-right font-mono font-bold text-primary">{r.today.toFixed(0)}</div>
-                    <div className="w-[13%] text-right font-mono text-slate-700">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</div>
-                    <div className="w-[13%] text-right font-mono text-slate-700">{r.party.toFixed(0)}</div>
-                    <div className="w-[13%] text-right text-slate-900 font-medium">{Number(r.available_qty).toFixed(2)} MT</div>
-                    <div className="w-[14%] text-right text-muted-foreground font-mono pr-1">{r.last_purchase_rate ?? "—"}</div>
+                    
+                    {/* Gauge Column - Renders clean interactive numeric inputs when edit mode is toggled */}
+                    <div className="w-[10%] text-right text-muted-foreground font-mono pr-2 flex justify-end items-center">
+                      {isEditingGauges ? (
+                        <Input
+                          type="number"
+                          value={r.gauge_diff}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setLocalGauges((p) => ({ ...p, [r.id]: val }));
+                          }}
+                          className="h-7 w-16 text-right text-xs p-1 bg-background border-primary/40 focus-visible:ring-primary font-mono font-medium"
+                        />
+                      ) : (
+                        r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff
+                      )}
+                    </div>
+
+                    <div className="w-[13%] text-right font-mono font-bold text-primary">
+                      {r.today.toFixed(0)}
+                    </div>
+                    <div className="w-[13%] text-right font-mono text-slate-700">
+                      {r.sauda === null ? "—" : r.sauda.toFixed(0)}
+                    </div>
+                    <div className="w-[13%] text-right font-mono text-slate-700">
+                      {r.party.toFixed(0)}
+                    </div>
+                    <div className="w-[13%] text-right text-slate-900 font-medium">
+                      {Number(r.available_qty).toFixed(2)} MT
+                    </div>
+                    <div className="w-[14%] text-right text-muted-foreground font-mono pr-1">
+                      {r.last_purchase_rate ?? "—"}
+                    </div>
                   </div>
                 ))}
               </div>
