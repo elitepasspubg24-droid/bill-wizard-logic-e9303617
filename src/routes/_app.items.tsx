@@ -307,11 +307,11 @@ function ItemsPage() {
                                 <SelectValue placeholder="Select Sauda" />
                               </SelectTrigger>
                               <SelectContent>
-                                {allOpenSaudas.map((o) => (
-                                  <SelectItem key={o.id} value={o.id} className="text-[11px]">
-                                    {o.party} (Basic: ₹{o.basic})
-                                  </SelectItem>
-                                ))}
+                              {allOpenSaudas.map((o) => (
+  <SelectItem key={o.id} value={o.id} className="text-[11px]">
+    {o.party} (Basic: ₹{o.basic}) — {o.pending}T
+  </SelectItem>
+))}
                               </SelectContent>
                             </Select>
                           )}
