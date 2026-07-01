@@ -140,13 +140,47 @@ function ItemsPage() {
               <thead className="bg-slate-50 sticky top-0 z-10 border-b backdrop-blur-md shadow-xs">
                 {/* Embedded Section Info Header Row */}
                 <tr className="bg-slate-50 font-bold text-slate-800">
-                  <td colSpan={7} className="py-1.5 px-1 pl-2 text-left rounded-t-lg">
-                    <div className="flex flex-col gap-0.5">
-                      <div className="text-xs font-bold text-foreground">{section.name}</div>
-                      <div className="text-[10px] font-normal text-muted-foreground flex items-center gap-1 flex-wrap">
-                        <span>({factory?.name}: {(factory?.basic_rate ?? 0) + rateOffset} + {section.adder} add)</span>
-                        {top && <span className="text-emerald-700 font-medium">· Sauda: {top.party} ({top.pending}T)</span>}
+                  <td colSpan={7} className="py-2 px-2 text-left rounded-t-lg">
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-bold text-foreground">{section.name}</div>
+                          <div className="text-[10px] font-normal text-muted-foreground">
+                            {factory?.name}: {(factory?.basic_rate ?? 0) + rateOffset} + {section.adder} add
+                          </div>
+                        </div>
+                        {/* Interactive Sauda Dropdown Selection for Mobile */}
+                        {factory && allOpenSaudas.length > 0 && (
+                          <div className="flex items-center gap-1">
+                            <Select 
+                              value={pickedSauda[factory.id] ?? top?.id ?? ""} 
+                              onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}
+                            >
+                              <SelectTrigger className="h-7 w-40 text-[10px] bg-background px-2 py-0 shadow-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {allOpenSaudas.map((o) => (
+                                  <SelectItem key={o.id} value={o.id} className="text-[11px]">
+                                    {o.party} (B: {o.basic}) — {o.pending}T
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
                       </div>
+                      
+                      {/* Detailed Metadata Badges with Sauda Basic Rate */}
+                      {top && (
+                        <div className="text-[10px] text-emerald-800 font-medium bg-emerald-50 border border-emerald-100 rounded-sm px-1.5 py-0.5 w-max flex items-center gap-1.5">
+                          <span>Sauda Basic: <strong className="font-bold">₹{top.basic}</strong></span>
+                          <span className="text-emerald-300">|</span>
+                          <span className="truncate max-w-[100px]">Party: {top.party}</span>
+                          <span className="text-emerald-300">|</span>
+                          <span>Bal: {top.pending}t</span>
+                        </div>
+                      )}
                     </div>
                   </td>
                 </tr>
