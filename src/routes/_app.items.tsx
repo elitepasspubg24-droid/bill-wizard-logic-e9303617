@@ -1,3 +1,5 @@
+Here is the complete full code for src/routes/_app.items.tsx with all three fixes applied.
+
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -110,7 +112,15 @@ function ItemsPage() {
         saudaFacAdder,
         rows,
       };
-    }).filter((g) => g.rows.length > 0);
+    })
+    .filter((g) => g.rows.length > 0)
+    .sort((a, b) => {
+      const aPipe = a.section.name.trim().toLowerCase().includes("ms pipe");
+      const bPipe = b.section.name.trim().toLowerCase().includes("ms pipe");
+      if (aPipe && !bPipe) return 1;
+      if (!aPipe && bPipe) return -1;
+      return 0;
+    });
   }, [factories.data, sections.data, items.data, pickedTodayFactory, pickedSauda, allOpenSaudas, q, localGauges]);
 
   const handleExportCSV = () => {
@@ -253,7 +263,11 @@ function ItemsPage() {
       {/* 📱 MOBILE VIEW: Compact Table */}
       <div className="block md:hidden space-y-4">
         {grouped.map(({ section, activeTodayFactory, activeFacBasic, activeFacAdder, topSauda, rows }) => (
-          <div key={section.id} className="border rounded-lg overflow-visible bg-background shadow-sm">
+          <div
+            key={section.id}
+            id={`section-${section.id}`}
+            className="scroll-mt-20 border rounded-lg overflow-visible bg-background shadow-sm"
+          >
             <table className="w-full border-collapse text-left text-[11px] table-fixed">
               <thead className="bg-slate-50 sticky top-0 z-10 border-b shadow-xs">
                 <tr className="bg-slate-50 font-bold text-slate-800">
@@ -295,16 +309,11 @@ function ItemsPage() {
                                 <SelectValue placeholder="Select Sauda" />
                               </SelectTrigger>
                               <SelectContent>
-                                {allOpenSaudas.map((o) => {
-                                  const fac: any = factories.data?.find((f: any) => f.id === o.factory_id);
-                                  const facAdder = Number(fac?.adder ?? 0);
-                                  const saudaToday = Number(o.basic) + facAdder;
-                                  return (
-                                    <SelectItem key={o.id} value={o.id} className="text-[11px]">
-                                      {o.party} (Today: ₹{saudaToday})
-                                    </SelectItem>
-                                  );
-                                })}
+                                {allOpenSaudas.map((o) => (
+                                  <SelectItem key={o.id} value={o.id} className="text-[11px]">
+                                    {o.party} (Basic: ₹{o.basic})
+                                  </SelectItem>
+                                ))}
                               </SelectContent>
                             </Select>
                           )}
@@ -384,16 +393,11 @@ function ItemsPage() {
                       >
                         <SelectTrigger className="h-8 w-64 text-xs bg-background"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          {allOpenSaudas.map((o) => {
-                            const fac: any = factories.data?.find((f: any) => f.id === o.factory_id);
-                            const facAdder = Number(fac?.adder ?? 0);
-                            const saudaToday = Number(o.basic) + facAdder;
-                            return (
-                              <SelectItem key={o.id} value={o.id} className="text-xs">
-                                {o.party} (Today: ₹{saudaToday}) — {o.pending}T
-                              </SelectItem>
-                            );
-                          })}
+                          {allOpenSaudas.map((o) => (
+                            <SelectItem key={o.id} value={o.id} className="text-xs">
+                              {o.party} (Basic: ₹{o.basic}) — {o.pending}T
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -452,7 +456,14 @@ function ItemsPage() {
           <DropdownMenuLabel>Jump to Section</DropdownMenuLabel>
           <DropdownMenuSeparator />
           {grouped.map(({ section }) => (
-            <DropdownMenuItem key={section.id} onSelect={() => document.getElementById(`section-${section.id}`)?.scrollIntoView({ behavior: "smooth" })}>
+            <DropdownMenuItem
+              key={section.id}
+              onSelect={() => {
+                setTimeout(() => {
+                  document.getElementById(`section-${section.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }, 50);
+              }}
+            >
               {section.name}
             </DropdownMenuItem>
           ))}
