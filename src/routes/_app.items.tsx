@@ -53,18 +53,16 @@ function ItemsPage() {
   
   const [q, setQ] = useState("");
   const [pickedSauda, setPickedSauda] = useState<Record<string, string>>({});
+  const [pickedSectionFactory, setPickedSectionFactory] = useState<Record<string, string>>({});
   const [isEditing, setIsEditing] = useState(false);
   
-  // Local state modifiers for inline edits
   const [localGauges, setLocalGauges] = useState<Record<string, number>>({});
   const [localNames, setLocalNames] = useState<Record<string, string>>({});
   const [localSections, setLocalSections] = useState<Record<string, string>>({});
   
-  // Local state for dynamically added temporary matrix rows
   const [newItems, setNewItems] = useState<any[]>([]);
   const [pdfCols, setPdfCols] = useState<ColKey[]>(DEFAULT_PDF_COLS);
 
-  // Form states for the "Add New Item" Dialog
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [newItemName, setNewItemName] = useState("");
   const [newItemSectionId, setNewItemSectionId] = useState("");
@@ -100,7 +98,6 @@ function ItemsPage() {
     if (!sections.data || !items.data || !factories.data) return [];
     const fmap = new Map(factories.data.map((f) => [f.id, f]));
 
-    // Construct a unified items list combining fetched items + locally created custom additions
     const unifiedItems = [...items.data, ...newItems].map((i) => {
       const currentGaugeDiff = localGauges[i.id] !== undefined ? localGauges[i.id] : Number(i.gauge_diff || 0);
       const currentName = localNames[i.id] !== undefined ? localNames[i.id] : i.name;
@@ -114,9 +111,10 @@ function ItemsPage() {
     });
 
     const list = sections.data.map((s) => {
-      const f = fmap.get(s.factory_id);
+      const selectedFactoryId = pickedSectionFactory[s.id] ?? s.factory_id;
+      const f = fmap.get(selectedFactoryId);
       const baseToday = (f?.basic_rate ?? 0) + Number(s.adder);
-      const top = chosenByFactory.get(s.factory_id);
+      const top = chosenByFactory.get(selectedFactoryId ?? "");
       const baseSauda = top ? top.basic + Number(s.adder) : null;
       const baseParty = Number(s.party_basic);
       
@@ -134,7 +132,6 @@ function ItemsPage() {
       return { section: s, factory: f, top, rows };
     }).filter((g) => g.rows.length > 0 || isEditing);
 
-    // Shifts any section containing "ms pipe" in its title dynamically to the bottom
     return [...list].sort((a, b) => {
       const aIsPipe = a.section.name.toLowerCase().includes("ms pipe");
       const bIsPipe = b.section.name.toLowerCase().includes("ms pipe");
@@ -142,7 +139,7 @@ function ItemsPage() {
       if (!aIsPipe && bIsPipe) return -1;
       return 0;
     });
-  }, [factories.data, sections.data, items.data, newItems, chosenByFactory, q, localGauges, localNames, localSections, isEditing]);
+  }, [factories.data, sections.data, items.data, newItems, chosenByFactory, q, localGauges, localNames, localSections, isEditing, pickedSectionFactory]);
 
   const handleExportCSV = () => {
     let csvContent = "data:text/csv;charset=utf-8,";
@@ -191,7 +188,7 @@ function ItemsPage() {
 
     let cursorY = 78;
     grouped.forEach(({ section, factory, rows }, idx) => {
-      if (idx > 0) cursorY += 18; // spacing between sections
+      if (idx > 0) cursorY += 18;
       if (cursorY > doc.internal.pageSize.getHeight() - 80) {
         doc.addPage();
         cursorY = 50;
@@ -246,7 +243,6 @@ function ItemsPage() {
 
   return (
     <div className="w-full space-y-4">
-      {/* Universal Sticky Control Heading Strip */}
       <div className="flex items-center justify-between gap-4 flex-wrap border-b pb-3">
         <div>
           <h2 className="text-xl md:text-2xl font-bold tracking-tight">Items Matrix</h2>
@@ -258,7 +254,6 @@ function ItemsPage() {
         <div className="flex items-center gap-2 ml-auto">
           <Input placeholder="Search item…" value={q} onChange={(e) => setQ(e.target.value)} className="w-36 md:w-48 h-9 text-sm" />
           
-          {/* Add Item Modal Dropdown Trigger */}
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>
               <Button size="sm" className="gap-2 h-9 text-xs">
@@ -313,7 +308,6 @@ function ItemsPage() {
             </DialogContent>
           </Dialog>
 
-          {/* Master Full-Field Editing Toggle Switch */}
           <Button 
             onClick={() => setIsEditing(!isEditing)} 
             variant={isEditing ? "default" : "outline"} 
@@ -369,59 +363,55 @@ function ItemsPage() {
         </div>
       </div>
 
-      {/* 📱 MOBILE VIEW: Compact Continuous Spreadsheet Matrix */}
       <div className="block md:hidden space-y-4">
         {grouped.map(({ section, factory, top, rows }) => (
           <div key={section.id} className="border rounded-lg overflow-visible bg-background shadow-sm">
             <table className="w-full border-collapse text-left text-[11px] table-fixed">
               <thead className="bg-slate-50 sticky top-0 z-10 border-b backdrop-blur-md shadow-xs">
-                {/* Embedded Section Info Header Row */}
                 <tr className="bg-slate-50 font-bold text-slate-800">
                   <td colSpan={7} className="py-2 px-2 text-left rounded-t-lg">
-                    <div className="flex flex-col gap-1.5">
+                    <div className="flex flex-col gap-2">
                       <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <div className="text-xs font-bold text-foreground">{section.name}</div>
-                          <div className="text-[10px] font-normal text-muted-foreground">
-                            {factory?.name}: {factory?.basic_rate ?? 0} + {section.adder} add
-                          </div>
+                        <div className="text-xs font-bold text-foreground">{section.name}</div>
+                        <div className="flex items-center gap-1">
+                          <Select 
+                            value={pickedSectionFactory[section.id] ?? section.factory_id} 
+                            onValueChange={(v) => setPickedSectionFactory((p) => ({ ...p, [section.id]: v }))}
+                          >
+                            <SelectTrigger className="h-7 w-28 text-[10px] bg-background px-2 py-0 shadow-xs">
+                              <SelectValue placeholder="Factory" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {factories.data?.map((f) => (
+                                <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
-                        {/* Interactive Sauda Dropdown Selection for Mobile */}
-                        {factory && allOpenSaudas.length > 0 && (
-                          <div className="flex items-center gap-1">
-                            <Select 
-                              value={pickedSauda[factory.id] ?? top?.id ?? ""} 
-                              onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}
-                            >
-                              <SelectTrigger className="h-7 w-40 text-[10px] bg-background px-2 py-0 shadow-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {allOpenSaudas.map((o) => (
-                                  <SelectItem key={o.id} value={o.id} className="text-[11px]">
-                                    {o.party} (B: {o.basic}) — {o.pending}T
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        )}
                       </div>
                       
-                      {/* Detailed Metadata Badges with Sauda Basic Rate */}
-                      {top && (
-                        <div className="text-[10px] text-emerald-800 font-medium bg-emerald-50 border border-emerald-100 rounded-sm px-1.5 py-0.5 w-max flex items-center gap-1.5">
-                          <span>Sauda Basic: <strong className="font-bold">₹{top.basic}</strong></span>
-                          <span className="text-emerald-300">|</span>
-                          <span className="truncate max-w-[100px]">Party: {top.party}</span>
-                          <span className="text-emerald-300">|</span>
-                          <span>Bal: {top.pending}t</span>
+                      {factory && allOpenSaudas.length > 0 && (
+                        <div className="flex items-center gap-1">
+                          <Select 
+                            value={pickedSauda[factory.id] ?? top?.id ?? ""} 
+                            onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}
+                          >
+                            <SelectTrigger className="h-7 w-40 text-[10px] bg-background px-2 py-0 shadow-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {allOpenSaudas.map((o) => (
+                                <SelectItem key={o.id} value={o.id} className="text-[11px]">
+                                  {o.party} (B: {o.basic}) — {o.pending}T
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
                       )}
                     </div>
                   </td>
                 </tr>
-                {/* Unified 7-Column Layout Header Row */}
                 <tr className="text-muted-foreground font-semibold bg-muted/50 border-t">
                   <th className="py-2 px-1 pl-2 w-[24%] text-left">Item</th>
                   <th className="py-2 px-1 text-right w-[11%]">±</th>
@@ -483,7 +473,6 @@ function ItemsPage() {
         ))}
       </div>
 
-      {/* 💻 WEB VIEW: Spacious, High-Information Card System */}
       <div className="hidden md:block space-y-4">
         {grouped.map(({ section, factory, top, rows }) => (
           <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20 overflow-visible">
@@ -495,22 +484,39 @@ function ItemsPage() {
                     (<Factory className="h-3 w-3 inline" /> {factory?.name} {factory?.basic_rate ?? 0} + {section.adder} adder)
                   </span>
                 </h3>
-                {factory && allOpenSaudas.length > 0 && (
+                
+                <div className="flex items-center gap-6">
                   <div className="flex items-center gap-2 text-xs font-normal">
-                    <span className="text-muted-foreground">Selected Sauda:</span>
-                    <Select value={pickedSauda[factory.id] ?? top?.id ?? ""} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
-                      <SelectTrigger className="h-7 w-72 text-xs bg-background"><SelectValue /></SelectTrigger>
+                    <span className="text-muted-foreground">Factory:</span>
+                    <Select 
+                      value={pickedSectionFactory[section.id] ?? section.factory_id} 
+                      onValueChange={(v) => setPickedSectionFactory((p) => ({ ...p, [section.id]: v }))}
+                    >
+                      <SelectTrigger className="h-7 w-40 text-xs bg-background"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {allOpenSaudas.map((o) => (
-                          <SelectItem key={o.id} value={o.id} className="text-xs">{o.party} — basic {o.basic} ({o.pending} pending)</SelectItem>
+                        {factories.data?.map((f) => (
+                          <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
-                )}
+
+                  {factory && allOpenSaudas.length > 0 && (
+                    <div className="flex items-center gap-2 text-xs font-normal">
+                      <span className="text-muted-foreground">Selected Sauda:</span>
+                      <Select value={pickedSauda[factory.id] ?? top?.id ?? ""} onValueChange={(v) => setPickedSauda((p) => ({ ...p, [factory.id]: v }))}>
+                        <SelectTrigger className="h-7 w-72 text-xs bg-background"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {allOpenSaudas.map((o) => (
+                            <SelectItem key={o.id} value={o.id} className="text-xs">{o.party} — basic {o.basic} ({o.pending} pending)</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
               </div>
               
-              {/* Header Titles */}
               <div className="px-4 py-2 flex text-xs font-semibold text-muted-foreground bg-muted/20 border-t">
                 <div className="w-[24%] text-left">Item Name & Section Allocation</div>
                 <div className="w-[10%] text-right pr-2">Gauge Diff</div>
@@ -526,8 +532,6 @@ function ItemsPage() {
               <div className="divide-y text-sm">
                 {rows.map((r) => (
                   <div key={r.id} className="flex px-4 py-2.5 items-center hover:bg-muted/10 transition-colors">
-                    
-                    {/* Item Name & Section Dropdown Column */}
                     <div className="w-[24%] text-left font-medium pr-2 text-slate-900">
                       {isEditing ? (
                         <div className="flex flex-col gap-1.5 max-w-[90%]">
@@ -552,7 +556,6 @@ function ItemsPage() {
                       )}
                     </div>
                     
-                    {/* Gauge Column */}
                     <div className="w-[10%] text-right text-muted-foreground font-mono pr-2 flex justify-end items-center">
                       {isEditing ? (
                         <Input
@@ -589,7 +592,6 @@ function ItemsPage() {
         ))}
       </div>
 
-      {/* Floating Category Navigation Button */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button size="icon" className="fixed bottom-6 right-6 h-12 w-12 rounded-full shadow-lg z-50"><List className="h-5 w-5" /></Button>
