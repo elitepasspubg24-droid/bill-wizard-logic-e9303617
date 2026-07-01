@@ -66,33 +66,36 @@ function ItemsPage() {
     const fmap = new Map(factories.data.map((f) => [f.id, f]));
     
     return sections.data.map((s) => {
-      // --- EXACT MATH FORMULA FOR TODAY'S RATE ---
+      // 1. Get Chosen Factory
       const activeTodayFactoryId = pickedTodayFactory[s.id] ?? s.factory_id;
       const activeTodayFactory = fmap.get(activeTodayFactoryId);
-      
-      // 1. Chosen Factory Basic Rate
       const activeFacBasic = Number(activeTodayFactory?.basic_rate ?? 0);
-      // 2. That Factory's Adder
-      const activeFacAdder = Number((activeTodayFactory as any)?.adder ?? 0);
       
+      // 2. Get That Factory's Adder (from the Sections table matching the chosen factory)
+      const activeSectionConfig = sections.data.find(
+        (sec) => sec.factory_id === activeTodayFactoryId && sec.name.trim().toLowerCase() === s.name.trim().toLowerCase()
+      ) || s;
+      const activeFacAdder = Number(activeSectionConfig.adder ?? 0);
+      
+      // 3. Compute Base Today Rate
       const baseToday = activeFacBasic + activeFacAdder;
 
-      // --- SAUDA & PARTY LOGIC ---
+      // Sauda & Party Logic
       const topSauda = allOpenSaudas.find(so => so.id === pickedSauda[s.id] || so.factory_id === activeTodayFactoryId);
       const baseSauda = topSauda ? topSauda.basic + activeFacAdder : null;
-      const baseParty = Number(s.party_basic ?? 0); // Preserving section party basic as before
+      const baseParty = Number(activeSectionConfig.party_basic ?? s.party_basic ?? 0);
 
       const rows = items.data!
         .filter((i) => i.section_id === s.id)
         .filter((i) => !q || i.name.toLowerCase().includes(q.toLowerCase()))
         .map((i) => {
-          // 3. Gauge Difference of that item
+          // 4. Gauge Difference of that item
           const gaugeDiff = localGauges[i.id] !== undefined ? localGauges[i.id] : Number(i.gauge_diff ?? 0);
           
           return { 
             ...i, 
             gauge_diff: gaugeDiff, 
-            today: baseToday + gaugeDiff, // Chosen Factory Basic + That Factory Adder + Gauge Diff
+            today: baseToday + gaugeDiff, // Math applied here!
             sauda: baseSauda !== null ? baseSauda + gaugeDiff : null, 
             party: baseParty + gaugeDiff 
           };
