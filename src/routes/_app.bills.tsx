@@ -457,6 +457,17 @@ function BillsPage() {
               {busy ? "Extracting…" : "Extract with AI"}
             </Button>
           </div>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground select-none cursor-pointer">
+            <input
+              type="checkbox"
+              checked={skipUpload}
+              onChange={(e) => setSkipUpload(e.target.checked)}
+              className="h-4 w-4"
+            />
+            Don't upload file to cloud (extract only — stock, rates &amp; sauda still update)
+          </label>
+          <div className="hidden">
+
  
           {draft && (
             <div className="space-y-3 pt-3 border-t">
