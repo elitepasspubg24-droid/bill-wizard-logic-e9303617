@@ -279,6 +279,7 @@ function BillsPage() {
   const [busy, setBusy] = useState(false);
   const [matches, setMatches] = useState<(string | null)[]>([]);
   const [linkSaudaId, setLinkSaudaId] = useState<string>("none");
+  const [skipUpload, setSkipUpload] = useState(true);
  
   const [editBill, setEditBill] = useState<any | null>(null);
   const [deleteBill, setDeleteBill] = useState<any | null>(null);
@@ -326,10 +327,14 @@ function BillsPage() {
   const save = useMutation({
     mutationFn: async () => {
       if (!draft || !file) throw new Error("nothing to save");
-      const path = `${Date.now()}_${file.name}`;
-      const up = await supabase.storage.from("bills").upload(path, file);
-      if (up.error) throw up.error;
- 
+
+      let path: string | null = null;
+      if (!skipUpload) {
+        path = `${Date.now()}_${file.name}`;
+        const up = await supabase.storage.from("bills").upload(path, file);
+        if (up.error) throw up.error;
+      }
+
       const { data: bill, error: be } = await supabase
         .from("bills")
         .insert({
@@ -452,6 +457,17 @@ function BillsPage() {
               {busy ? "Extracting…" : "Extract with AI"}
             </Button>
           </div>
+          <label className="flex items-center gap-2 text-sm text-muted-foreground select-none cursor-pointer">
+            <input
+              type="checkbox"
+              checked={skipUpload}
+              onChange={(e) => setSkipUpload(e.target.checked)}
+              className="h-4 w-4"
+            />
+            Don't upload file to cloud (extract only — stock, rates &amp; sauda still update)
+          </label>
+
+
  
           {draft && (
             <div className="space-y-3 pt-3 border-t">
