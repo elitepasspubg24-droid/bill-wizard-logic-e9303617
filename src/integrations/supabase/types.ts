@@ -94,23 +94,29 @@ export type Database = {
       }
       factories: {
         Row: {
+          adder: number
           basic_rate: number
           id: string
           name: string
+          party_adder: number
           position: number
           updated_at: string
         }
         Insert: {
+          adder?: number
           basic_rate?: number
           id?: string
           name: string
+          party_adder?: number
           position?: number
           updated_at?: string
         }
         Update: {
+          adder?: number
           basic_rate?: number
           id?: string
           name?: string
+          party_adder?: number
           position?: number
           updated_at?: string
         }
