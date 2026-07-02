@@ -279,6 +279,7 @@ function BillsPage() {
   const [busy, setBusy] = useState(false);
   const [matches, setMatches] = useState<(string | null)[]>([]);
   const [linkSaudaId, setLinkSaudaId] = useState<string>("none");
+  const [skipUpload, setSkipUpload] = useState(true);
  
   const [editBill, setEditBill] = useState<any | null>(null);
   const [deleteBill, setDeleteBill] = useState<any | null>(null);
