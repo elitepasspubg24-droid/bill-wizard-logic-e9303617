@@ -14,10 +14,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { List, Sliders, FileText, FileDown } from "lucide-react";
+import { List, Sliders, FileText, FileDown, Plus, Edit } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -50,6 +58,20 @@ function ItemsPage() {
   const [localGauges, setLocalGauges] = useState<Record<string, number>>({});
   const [pdfCols, setPdfCols] = useState<ColKey[]>(DEFAULT_PDF_COLS);
 
+  // --- CRUD Modal UI States ---
+  const [isSectionDialogOpen, setIsSectionDialogOpen] = useState(false);
+  const [isItemDialogOpen, setIsItemDialogOpen] = useState(false);
+  
+  const [sectionForm, setSectionForm] = useState({ id: "", name: "", factory_id: "" });
+  const [itemForm, setItemForm] = useState({
+    id: "",
+    name: "",
+    section_id: "",
+    gauge_diff: 0,
+    available_qty: 0,
+    last_purchase_rate: "",
+  });
+
   const allOpenSaudas = useMemo(() => {
     if (!saudas.data) return [];
     return (saudas.data as any[]).filter(s => s.factory_id && s.status !== "done").map(s => ({
@@ -65,8 +87,7 @@ function ItemsPage() {
     if (!sections.data || !items.data || !factories.data) return [];
     const fmap = new Map(factories.data.map((f: any) => [f.id, f]));
 
-    return sections.data.map((s) => {
-      // ---- TODAY: uses the picked "Today's Factory" ----
+    return sections.data.map((s: any) => {
       const activeTodayFactoryId = pickedTodayFactory[s.id] ?? s.factory_id;
       const activeTodayFactory: any = fmap.get(activeTodayFactoryId);
       const activeFacBasic = Number(activeTodayFactory?.basic_rate ?? 0);
@@ -76,7 +97,6 @@ function ItemsPage() {
       const baseToday = activeFacBasic + activeFacAdder;
       const baseParty = baseToday + activePartyAdder;
 
-      // ---- SAUDA: uses the SAUDA's own factory (independent from Today Factory) ----
       const topSauda = allOpenSaudas.find(
         (so) => so.id === pickedSauda[s.id] || so.factory_id === activeTodayFactoryId
       );
@@ -85,9 +105,9 @@ function ItemsPage() {
       const baseSauda = topSauda ? topSauda.basic + saudaFacAdder : null;
 
       const rows = items.data!
-        .filter((i) => i.section_id === s.id)
-        .filter((i) => !q || i.name.toLowerCase().includes(q.toLowerCase()))
-        .map((i) => {
+        .filter((i: any) => i.section_id === s.id)
+        .filter((i: any) => !q || i.name.toLowerCase().includes(q.toLowerCase()))
+        .map((i: any) => {
           const gaugeDiff =
             localGauges[i.id] !== undefined ? localGauges[i.id] : Number(i.gauge_diff ?? 0);
           return {
@@ -111,8 +131,8 @@ function ItemsPage() {
         rows,
       };
     })
-    .filter((g) => g.rows.length > 0)
-    .sort((a, b) => {
+    .filter((g: any) => g.rows.length > 0)
+    .sort((a: any, b: any) => {
       const aPipe = a.section.name.trim().toLowerCase().includes("ms pipe");
       const bPipe = b.section.name.trim().toLowerCase().includes("ms pipe");
       if (aPipe && !bPipe) return 1;
@@ -120,6 +140,55 @@ function ItemsPage() {
       return 0;
     });
   }, [factories.data, sections.data, items.data, pickedTodayFactory, pickedSauda, allOpenSaudas, q, localGauges]);
+
+  // --- CRUD Actions ---
+  const openAddSection = () => {
+    setSectionForm({ id: "", name: "", factory_id: factories.data?.[0]?.id || "" });
+    setIsSectionDialogOpen(true);
+  };
+
+  const openEditSection = (section: any) => {
+    setSectionForm({ id: section.id, name: section.name, factory_id: section.factory_id || "" });
+    setIsSectionDialogOpen(true);
+  };
+
+  const openAddItem = (sectionId?: string) => {
+    setItemForm({
+      id: "",
+      name: "",
+      section_id: sectionId || sections.data?.[0]?.id || "",
+      gauge_diff: 0,
+      available_qty: 0,
+      last_purchase_rate: "",
+    });
+    setIsItemDialogOpen(true);
+  };
+
+  const openEditItem = (item: any) => {
+    setItemForm({
+      id: item.id,
+      name: item.name,
+      section_id: item.section_id,
+      gauge_diff: item.gauge_diff,
+      available_qty: Number(item.available_qty || 0),
+      last_purchase_rate: item.last_purchase_rate != null ? String(item.last_purchase_rate) : "",
+    });
+    setIsItemDialogOpen(true);
+  };
+
+  const handleSaveSection = (e: React.FormEvent) => {
+    e.preventDefault();
+    // Connect your mutation engine here (e.g., useMutation hook setup)
+    console.log("Saving Section data:", sectionForm);
+    setIsSectionDialogOpen(false);
+  };
+
+  const handleSaveItem = (e: React.FormEvent) => {
+    e.preventDefault();
+    // Connect your mutation engine here (e.g., useMutation hook setup)
+    console.log("Saving Item data:", itemForm);
+    setIsItemDialogOpen(false);
+  };
 
   const handleExportCSV = () => {
     let csvContent = "data:text/csv;charset=utf-8,";
@@ -207,7 +276,20 @@ function ItemsPage() {
         </div>
 
         <div className="flex items-center gap-2 ml-auto">
-          <Input placeholder="Search..." value={q} onChange={(e) => setQ(e.target.value)} className="w-36 md:w-48 h-9" />
+          <Input placeholder="Search..." value={q} onChange={(e) => setQ(e.target.value)} className="w-32 md:w-48 h-9" />
+
+          {/* Quick Creator Operations Menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" className="h-9 gap-1.5 bg-primary text-primary-content">
+                <Plus className="h-4 w-4" /> Add New
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => openAddItem()}>Add Product Item</DropdownMenuItem>
+              <DropdownMenuItem onClick={openAddSection}>Add Section Group</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <Button onClick={() => setIsEditingGauges(!isEditingGauges)} variant={isEditingGauges ? "default" : "outline"} size="sm" className="h-9 hidden md:flex">
             <Sliders className="mr-2 h-4 w-4" /> {isEditingGauges ? "Finish Editing" : "Edit Gauges"}
@@ -273,7 +355,12 @@ function ItemsPage() {
                     <div className="flex flex-col gap-1.5">
                       <div className="flex items-center justify-between gap-2">
                         <div>
-                          <div className="text-xs font-bold text-foreground">{section.name}</div>
+                          <div className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                            {section.name}
+                            <button onClick={() => openEditSection(section)} className="p-1 text-muted-foreground hover:text-foreground">
+                              <Edit className="h-3 w-3" />
+                            </button>
+                          </div>
                           <div className="text-[10px] font-normal text-muted-foreground">
                             Base: {activeFacBasic} + {activeFacAdder}
                           </div>
@@ -308,10 +395,10 @@ function ItemsPage() {
                               </SelectTrigger>
                               <SelectContent>
                               {allOpenSaudas.map((o) => (
-  <SelectItem key={o.id} value={o.id} className="text-[11px]">
-    {o.party} (Basic: ₹{o.basic}) — {o.pending}T
-  </SelectItem>
-))}
+                                <SelectItem key={o.id} value={o.id} className="text-[11px]">
+                                  {o.party} (Basic: ₹{o.basic}) — {o.pending}T
+                                </SelectItem>
+                              ))}
                               </SelectContent>
                             </Select>
                           )}
@@ -321,19 +408,26 @@ function ItemsPage() {
                   </td>
                 </tr>
                 <tr className="text-muted-foreground font-semibold bg-muted/50 border-t">
-                  <th className="py-2 px-1 pl-2 w-[24%] text-left">Item</th>
+                  <th className="py-2 px-1 pl-2 w-[28%] text-left">Item</th>
                   <th className="py-2 px-1 text-right w-[9%]">±</th>
                   <th className="py-2 px-1 text-right w-[14%] bg-primary/5 text-primary font-bold">Today</th>
                   <th className="py-2 px-1 text-right w-[14%]">Sauda</th>
-                  <th className="py-2 px-1 text-right w-[13%]">Party</th>
-                  <th className="py-2 px-1 text-right w-[13%]">Stock</th>
-                  <th className="py-2 px-1 text-right pr-2 w-[13%]">Last</th>
+                  <th className="py-2 px-1 text-right w-[12%]">Party</th>
+                  <th className="py-2 px-1 text-right w-[12%]">Stock</th>
+                  <th className="py-2 px-1 text-right pr-2 w-[11%]">Last</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {rows.map((r) => (
-                  <tr key={r.id} className="hover:bg-muted/5">
-                    <td className="py-2 px-1 pl-2 font-medium text-foreground break-words">{r.name}</td>
+                  <tr key={r.id} className="hover:bg-muted/5 group">
+                    <td className="py-2 px-1 pl-2 font-medium text-foreground break-words">
+                      <div className="flex items-center gap-1">
+                        <span>{r.name}</span>
+                        <button onClick={() => openEditItem(r)} className="opacity-40 group-hover:opacity-100 p-0.5 text-muted-foreground hover:text-foreground transition-opacity">
+                          <Edit className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
+                    </td>
                     <td className="py-2 px-1 text-right font-mono text-muted-foreground whitespace-nowrap">{r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff}</td>
                     <td className="py-2 px-1 text-right font-mono font-bold text-primary bg-primary/[0.01] whitespace-nowrap">{r.today.toFixed(0)}</td>
                     <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
@@ -355,7 +449,12 @@ function ItemsPage() {
             <div className="sticky top-14 z-20 bg-card border-b shadow-xs rounded-t-lg">
               <div className="p-4 pb-2 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-col">
-                  <h3 className="text-base font-bold text-foreground">{section.name}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-foreground">{section.name}</h3>
+                    <Button onClick={() => openEditSection(section)} variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground">
+                      <Edit className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                   <span className="text-xs font-normal text-muted-foreground">
                     ({activeTodayFactory?.name} Basic: ₹{activeFacBasic} + Adder: ₹{activeFacAdder})
                   </span>
@@ -417,8 +516,13 @@ function ItemsPage() {
             <CardContent className="p-0">
               <div className="divide-y text-sm">
                 {rows.map((r) => (
-                  <div key={r.id} className="flex px-4 py-2.5 items-center hover:bg-muted/10 transition-colors">
-                    <div className="w-[24%] text-left font-medium pr-2 text-slate-900">{r.name}</div>
+                  <div key={r.id} className="flex px-4 py-2.5 items-center hover:bg-muted/10 transition-colors group">
+                    <div className="w-[24%] text-left font-medium pr-2 text-slate-900 flex items-center gap-2">
+                      <span>{r.name}</span>
+                      <Button onClick={() => openEditItem(r)} variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity">
+                        <Edit className="h-3 w-3" />
+                      </Button>
+                    </div>
 
                     <div className="w-[10%] text-right text-muted-foreground font-mono pr-2 flex justify-end items-center">
                       {isEditingGauges ? (
@@ -446,6 +550,87 @@ function ItemsPage() {
         ))}
       </div>
 
+      {/* --- ADD/EDIT SECTION DIALOG --- */}
+      <Dialog open={isSectionDialogOpen} onOpenChange={setIsSectionDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>{sectionForm.id ? "Edit Section Profile" : "Create New Section"}</DialogTitle>
+            <DialogDescription>Setup your core category/structural section groups here.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSaveSection} className="space-y-4 py-2">
+            <div className="space-y-1">
+              <Label htmlFor="sec-name" className="text-xs">Section Name</Label>
+              <Input id="sec-name" value={sectionForm.name} onChange={(e) => setSectionForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g., MS Angle, MS Channel" required />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="sec-factory" className="text-xs">Default Reference Factory</Label>
+              <Select value={sectionForm.factory_id} onValueChange={(v) => setSectionForm(p => ({ ...p, factory_id: v }))}>
+                <SelectTrigger id="sec-factory"><SelectValue placeholder="Select primary factory" /></SelectTrigger>
+                <SelectContent>
+                  {factories.data?.map((f: any) => (
+                    <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="outline" onClick={() => setIsSectionDialogOpen(false)}>Cancel</Button>
+              <Button type="submit">Save Section</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- ADD/EDIT ITEM DIALOG --- */}
+      <Dialog open={isItemDialogOpen} onOpenChange={setIsItemDialogOpen}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle>{itemForm.id ? "Edit Matrix Item" : "Add New Matrix Item"}</DialogTitle>
+            <DialogDescription>Configure specific item properties, inventory settings, and structural dimensions.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSaveItem} className="space-y-4 py-2">
+            <div className="space-y-1">
+              <Label htmlFor="item-name" className="text-xs">Product Item Name / Size</Label>
+              <Input id="item-name" value={itemForm.name} onChange={(e) => setItemForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g., 50x50x5mm" required />
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="item-section" className="text-xs">Belongs to Section Group</Label>
+              <Select value={itemForm.section_id} onValueChange={(v) => setItemForm(p => ({ ...p, section_id: v }))}>
+                <SelectTrigger id="item-section"><SelectValue placeholder="Select section grouping" /></SelectTrigger>
+                <SelectContent>
+                  {sections.data?.map((s: any) => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="item-gauge" className="text-xs">Gauge Diff (±)</Label>
+                <Input id="item-gauge" type="number" value={itemForm.gauge_diff} onChange={(e) => setItemForm(p => ({ ...p, gauge_diff: Number(e.target.value) }))} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="item-qty" className="text-xs">Current Stock Qty (MT)</Label>
+                <Input id="item-qty" type="number" step="0.01" value={itemForm.available_qty} onChange={(e) => setItemForm(p => ({ ...p, available_qty: Number(e.target.value) }))} />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="item-last-rate" className="text-xs">Last Purchase Rate (Optional)</Label>
+              <Input id="item-last-rate" type="number" placeholder="e.g., 42500" value={itemForm.last_purchase_rate} onChange={(e) => setItemForm(p => ({ ...p, last_purchase_rate: e.target.value }))} />
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="outline" onClick={() => setIsItemDialogOpen(false)}>Cancel</Button>
+              <Button type="submit">Save Matrix Item</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- JUMP TO SECTION ACTION SHEET BAR --- */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button size="icon" className="fixed bottom-6 right-6 h-12 w-12 rounded-full shadow-xl"><List /></Button>
