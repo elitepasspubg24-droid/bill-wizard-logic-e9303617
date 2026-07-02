@@ -278,6 +278,7 @@ export type Database = {
       }
       saudas: {
         Row: {
+          completed_at: string | null
           created_at: string
           factory_id: string | null
           id: string
@@ -291,6 +292,7 @@ export type Database = {
           total_qty: number
         }
         Insert: {
+          completed_at?: string | null
           created_at?: string
           factory_id?: string | null
           id?: string
@@ -304,6 +306,7 @@ export type Database = {
           total_qty?: number
         }
         Update: {
+          completed_at?: string | null
           created_at?: string
           factory_id?: string | null
           id?: string
