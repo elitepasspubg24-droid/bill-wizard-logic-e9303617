@@ -327,10 +327,14 @@ function BillsPage() {
   const save = useMutation({
     mutationFn: async () => {
       if (!draft || !file) throw new Error("nothing to save");
-      const path = `${Date.now()}_${file.name}`;
-      const up = await supabase.storage.from("bills").upload(path, file);
-      if (up.error) throw up.error;
- 
+
+      let path: string | null = null;
+      if (!skipUpload) {
+        path = `${Date.now()}_${file.name}`;
+        const up = await supabase.storage.from("bills").upload(path, file);
+        if (up.error) throw up.error;
+      }
+
       const { data: bill, error: be } = await supabase
         .from("bills")
         .insert({
