@@ -466,7 +466,7 @@ function BillsPage() {
             />
             Don't upload file to cloud (extract only — stock, rates &amp; sauda still update)
           </label>
-          <div className="hidden">
+
 
  
           {draft && (
