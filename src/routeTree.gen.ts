@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppSaudasRouteImport } from './routes/_app.saudas'
@@ -18,6 +19,11 @@ import { Route as AppBillsRouteImport } from './routes/_app.bills'
 import { Route as ApiPublicHooksCleanupSaudasRouteImport } from './routes/api/public/hooks/cleanup-saudas'
 import { Route as ApiPublicHooksCleanupBillsRouteImport } from './routes/api/public/hooks/cleanup-bills'
 
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppRoute = AppRouteImport.update({
   id: '/_app',
   getParentRoute: () => rootRouteImport,
@@ -62,6 +68,7 @@ const ApiPublicHooksCleanupBillsRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/auth': typeof AuthRoute
   '/bills': typeof AppBillsRoute
   '/history': typeof AppHistoryRoute
   '/items': typeof AppItemsRoute
@@ -70,6 +77,7 @@ export interface FileRoutesByFullPath {
   '/api/public/hooks/cleanup-saudas': typeof ApiPublicHooksCleanupSaudasRoute
 }
 export interface FileRoutesByTo {
+  '/auth': typeof AuthRoute
   '/bills': typeof AppBillsRoute
   '/history': typeof AppHistoryRoute
   '/items': typeof AppItemsRoute
@@ -81,6 +89,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
+  '/auth': typeof AuthRoute
   '/_app/bills': typeof AppBillsRoute
   '/_app/history': typeof AppHistoryRoute
   '/_app/items': typeof AppItemsRoute
@@ -93,6 +102,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/auth'
     | '/bills'
     | '/history'
     | '/items'
@@ -101,6 +111,7 @@ export interface FileRouteTypes {
     | '/api/public/hooks/cleanup-saudas'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/auth'
     | '/bills'
     | '/history'
     | '/items'
@@ -111,6 +122,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_app'
+    | '/auth'
     | '/_app/bills'
     | '/_app/history'
     | '/_app/items'
@@ -122,12 +134,20 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  AuthRoute: typeof AuthRoute
   ApiPublicHooksCleanupBillsRoute: typeof ApiPublicHooksCleanupBillsRoute
   ApiPublicHooksCleanupSaudasRoute: typeof ApiPublicHooksCleanupSaudasRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app': {
       id: '/_app'
       path: ''
@@ -207,6 +227,7 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  AuthRoute: AuthRoute,
   ApiPublicHooksCleanupBillsRoute: ApiPublicHooksCleanupBillsRoute,
   ApiPublicHooksCleanupSaudasRoute: ApiPublicHooksCleanupSaudasRoute,
 }
