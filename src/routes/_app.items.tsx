@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 import { fetchFactories, fetchSections, fetchItems, fetchSaudas } from "@/lib/queries";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -50,6 +52,8 @@ function ItemsPage() {
   const sections = useQuery({ queryKey: ["sections"], queryFn: fetchSections });
   const items = useQuery({ queryKey: ["items"], queryFn: fetchItems });
   const saudas = useQuery({ queryKey: ["saudas"], queryFn: fetchSaudas });
+  const queryClient = useQueryClient();
+  const [saving, setSaving] = useState(false);
 
   const [q, setQ] = useState("");
   const [pickedTodayFactory, setPickedTodayFactory] = useState<Record<string, string>>({});
@@ -176,18 +180,74 @@ function ItemsPage() {
     setIsItemDialogOpen(true);
   };
 
-  const handleSaveSection = (e: React.FormEvent) => {
+  const handleSaveSection = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Connect your mutation engine here (e.g., useMutation hook setup)
-    console.log("Saving Section data:", sectionForm);
-    setIsSectionDialogOpen(false);
+    if (!sectionForm.name.trim() || !sectionForm.factory_id) {
+      toast.error("Section name and factory are required");
+      return;
+    }
+    setSaving(true);
+    try {
+      if (sectionForm.id) {
+        const { error } = await supabase
+          .from("sections")
+          .update({ name: sectionForm.name.trim(), factory_id: sectionForm.factory_id })
+          .eq("id", sectionForm.id);
+        if (error) throw error;
+      } else {
+        const nextPos = (sections.data?.length ?? 0);
+        const { error } = await supabase.from("sections").insert({
+          name: sectionForm.name.trim(),
+          factory_id: sectionForm.factory_id,
+          position: nextPos,
+        });
+        if (error) throw error;
+      }
+      toast.success(sectionForm.id ? "Section updated" : "Section added");
+      await queryClient.invalidateQueries({ queryKey: ["sections"] });
+      setIsSectionDialogOpen(false);
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to save section");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleSaveItem = (e: React.FormEvent) => {
+  const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Connect your mutation engine here (e.g., useMutation hook setup)
-    console.log("Saving Item data:", itemForm);
-    setIsItemDialogOpen(false);
+    if (!itemForm.name.trim() || !itemForm.section_id) {
+      toast.error("Item name and section are required");
+      return;
+    }
+    setSaving(true);
+    try {
+      const lastRate =
+        itemForm.last_purchase_rate === "" ? null : Number(itemForm.last_purchase_rate);
+      const payload = {
+        name: itemForm.name.trim(),
+        section_id: itemForm.section_id,
+        gauge_diff: Number(itemForm.gauge_diff) || 0,
+        available_qty: Number(itemForm.available_qty) || 0,
+        last_purchase_rate: lastRate,
+      };
+      if (itemForm.id) {
+        const { error } = await supabase.from("items").update(payload).eq("id", itemForm.id);
+        if (error) throw error;
+      } else {
+        const nextPos = (items.data?.filter((i: any) => i.section_id === itemForm.section_id).length ?? 0);
+        const { error } = await supabase
+          .from("items")
+          .insert({ ...payload, position: nextPos });
+        if (error) throw error;
+      }
+      toast.success(itemForm.id ? "Item updated" : "Item added");
+      await queryClient.invalidateQueries({ queryKey: ["items"] });
+      setIsItemDialogOpen(false);
+    } catch (err: any) {
+      toast.error(err.message ?? "Failed to save item");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleExportCSV = () => {
@@ -575,7 +635,7 @@ function ItemsPage() {
             </div>
             <DialogFooter className="pt-2">
               <Button type="button" variant="outline" onClick={() => setIsSectionDialogOpen(false)}>Cancel</Button>
-              <Button type="submit">Save Section</Button>
+              <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Section"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -624,7 +684,7 @@ function ItemsPage() {
 
             <DialogFooter className="pt-2">
               <Button type="button" variant="outline" onClick={() => setIsItemDialogOpen(false)}>Cancel</Button>
-              <Button type="submit">Save Matrix Item</Button>
+              <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Matrix Item"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
