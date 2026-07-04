@@ -44,13 +44,3 @@ export async function fetchSaudas() {
   if (error) throw error;
   return data;
 }
-ts
-export async function fetchAppSettings() {
-  const { data, error } = await supabase
-    .from("app_settings")
-    .select("*")
-    .eq("id", "global")
-    .single();
-  if (error) throw error;
-  return data as { id: string; w_enabled: boolean; updated_at: string };
-}
