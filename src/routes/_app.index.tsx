@@ -14,11 +14,15 @@ function DashboardIndex() {
   const { toast } = useToast();
 
   // Load existing values from localStorage or default to initial values
+  const [partyAdder, setPartyAdder] = useState<string>(() => localStorage.getItem("party_adder") || "");
   const [factoryAdder, setFactoryAdder] = useState<string>(() => localStorage.getItem("factory_adder") || "");
   const [wPercentage, setWPercentage] = useState<string>(() => localStorage.getItem("w_percentage") || "");
-  const [partyAdder, setPartyAdder] = useState<string>(() => localStorage.getItem("party_adder") || "");
 
   // Sync input values to local state persistence layers
+  useEffect(() => {
+    localStorage.setItem("party_adder", partyAdder);
+  }, [partyAdder]);
+
   useEffect(() => {
     localStorage.setItem("factory_adder", factoryAdder);
   }, [factoryAdder]);
@@ -27,37 +31,9 @@ function DashboardIndex() {
     localStorage.setItem("w_percentage", wPercentage);
   }, [wPercentage]);
 
-  useEffect(() => {
-    localStorage.setItem("party_adder", partyAdder);
-  }, [partyAdder]);
-
-  // Bulk Apply Logic for Percentage Adder "w"
-  const handleApplyWAll = () => {
-    if (wPercentage === "") {
-      toast({
-        title: "Configuration Error",
-        description: "Please enter a percentage value for 'w' first.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const items = JSON.parse(localStorage.getItem("items_list") || "[]");
-    const updatedItems = items.map((item: any) => ({
-      ...item,
-      w_percentage: parseFloat(wPercentage) || 0,
-    }));
-    localStorage.setItem("items_list", JSON.stringify(updatedItems));
-
-    toast({
-      title: "Modifier Applied",
-      description: `Applied Percentage Adder "w" of ${wPercentage}% across all catalog entries!`,
-    });
-  };
-
-  // Bulk Apply Logic for Party Adder
+  // Bulk Apply Logic for standard Party Adder
   const handleApplyPartyAll = () => {
-    if (partyAdder === "") {
+    if (!partyAdder) {
       toast({
         title: "Configuration Error",
         description: "Please enter a Party Adder amount first.",
@@ -79,26 +55,41 @@ function DashboardIndex() {
     });
   };
 
+  // New Bulk Apply Logic for Percentage Adder "w"
+  const handleApplyWAll = () => {
+    if (!wPercentage) {
+      toast({
+        title: "Configuration Error",
+        description: "Please enter a percentage value for 'w' first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const items = JSON.parse(localStorage.getItem("items_list") || "[]");
+    const updatedItems = items.map((item: any) => ({
+      ...item,
+      w_percentage: parseFloat(wPercentage) || 0,
+    }));
+    localStorage.setItem("items_list", JSON.stringify(updatedItems));
+
+    toast({
+      title: "Modifier Applied",
+      description: `Applied Percentage Adder "w" of ${wPercentage}% across all catalog entries!`,
+    });
+  };
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       {/* Top Header Row with Bulk Apply Actions */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b pb-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Adder Configurations</h1>
-          <p className="text-muted-foreground">Manage your margins, factory rates, and percentage adjustments.</p>
+          <p className="text-muted-foreground">Manage your margins, factory rates, and weight indices adjustments.</p>
         </div>
         
         {/* Dynamic Apply Action Bar on Top Right */}
         <div className="flex flex-wrap items-center gap-3 bg-secondary/40 p-2 rounded-lg border">
-          <Button 
-            onClick={handleApplyWAll}
-            size="sm"
-            className="h-9 bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5"
-          >
-            <Check className="h-4 w-4" />
-            Apply All (w)
-          </Button>
-
           <Button 
             onClick={handleApplyPartyAll}
             size="sm"
@@ -106,6 +97,15 @@ function DashboardIndex() {
             className="h-9"
           >
             Apply Party All
+          </Button>
+          
+          <Button 
+            onClick={handleApplyWAll}
+            size="sm"
+            className="h-9 bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5"
+          >
+            <Check className="h-4 w-4" />
+            Apply All (w)
           </Button>
         </div>
       </div>
@@ -117,7 +117,21 @@ function DashboardIndex() {
             <CardTitle className="text-xl">Global Adders Parameters</CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-5">
-            {/* 1. Factory Adder Field */}
+            {/* Party Adder Field */}
+            <div className="space-y-2">
+              <label className="text-sm font-semibold tracking-wide block text-foreground/80">
+                Party Adder
+              </label>
+              <Input
+                type="number"
+                placeholder="Enter baseline party adder margin"
+                value={partyAdder}
+                onChange={(e) => setPartyAdder(e.target.value)}
+                className="w-full"
+              />
+            </div>
+
+            {/* Factory Adder Field */}
             <div className="space-y-2">
               <label className="text-sm font-semibold tracking-wide block text-foreground/80">
                 Factory Adder
@@ -131,7 +145,7 @@ function DashboardIndex() {
               />
             </div>
 
-            {/* 2. Percentage Adder "w" Input Element - Placed directly after Factory Adder */}
+            {/* Percentage Adder "w" Input Element - Placed right after Factory Adder */}
             <div className="space-y-2">
               <label className="text-sm font-semibold tracking-wide block text-foreground/80 flex items-center gap-1.5">
                 Percentage Adder <span className="text-blue-500 font-bold">("w")</span>
@@ -139,7 +153,7 @@ function DashboardIndex() {
               <div className="relative">
                 <Input
                   type="number"
-                  placeholder="e.g. 10 or 12"
+                  placeholder="e.g. 10 or 11 or 12"
                   value={wPercentage}
                   onChange={(e) => setWPercentage(e.target.value)}
                   className="w-full pr-10"
@@ -149,22 +163,8 @@ function DashboardIndex() {
                 </div>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                Applies compounding percentage markup directly to the designated factory pricing tier.
+                Applies compounding premium weight calculation directly to the designated factory pricing tier.
               </p>
-            </div>
-
-            {/* 3. Party Adder Field */}
-            <div className="space-y-2">
-              <label className="text-sm font-semibold tracking-wide block text-foreground/80">
-                Party Adder
-              </label>
-              <Input
-                type="number"
-                placeholder="Enter baseline party adder margin"
-                value={partyAdder}
-                onChange={(e) => setPartyAdder(e.target.value)}
-                className="w-full"
-              />
             </div>
           </CardContent>
         </Card>
@@ -179,7 +179,7 @@ function DashboardIndex() {
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
             <p className="text-muted-foreground">
-              Real-time calculation metrics using your active formula variables configuration values.
+              Real-time calculation metrics using your active formula variables configuration sheet values.
             </p>
             <div className="p-4 rounded-md border bg-background space-y-2 font-mono text-xs">
               <div className="flex justify-between">
@@ -187,7 +187,7 @@ function DashboardIndex() {
                 <span className="font-semibold text-foreground">₹{parseFloat(factoryAdder || "0").toFixed(2)}</span>
               </div>
               <div className="flex justify-between border-b pb-2">
-                <span>Percentage Modifier (w):</span>
+                <span>Weight Modifier (w):</span>
                 <span className="font-semibold text-blue-500">+{wPercentage || "0"}%</span>
               </div>
               <div className="flex justify-between pt-1 text-sm font-bold text-green-600">
