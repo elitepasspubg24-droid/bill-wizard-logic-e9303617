@@ -635,7 +635,7 @@ function ItemsPage() {
             </div>
             <DialogFooter className="pt-2">
               <Button type="button" variant="outline" onClick={() => setIsSectionDialogOpen(false)}>Cancel</Button>
-              <Button type="submit">Save Section</Button>
+              <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Section"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -684,7 +684,7 @@ function ItemsPage() {
 
             <DialogFooter className="pt-2">
               <Button type="button" variant="outline" onClick={() => setIsItemDialogOpen(false)}>Cancel</Button>
-              <Button type="submit">Save Matrix Item</Button>
+              <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Matrix Item"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
