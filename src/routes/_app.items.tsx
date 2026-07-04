@@ -1,16 +1,19 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, Layers, RefreshCw } from "lucide-react";
+import { Search, Layers, RefreshCw, ShoppingCart, Download, Trash2, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 
 export const Route = createFileRoute("/_app/items")({
   component: ItemsPage,
 });
 
-// Safe initial dataset fallback matrix structure
 const INITIAL_DEMO_ITEMS = [
   { id: "1", name: "Structural Steel Angle", code: "ST-ANG-01", factory_adder: 45000, party_adder: 1200, w_percentage: 0 },
   { id: "2", name: "Steel Flat Bar", code: "ST-FLAT-02", factory_adder: 48000, party_adder: 1500, w_percentage: 0 },
@@ -20,13 +23,13 @@ const INITIAL_DEMO_ITEMS = [
 function ItemsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [items, setItems] = useState<any[]>([]);
+  const [cart, setCart] = useState<any[]>([]);
+  const cartRef = useRef<HTMLDivElement>(null);
 
-  // Track global state fallbacks synced from dashboard inputs
   const [globalFactoryAdder, setGlobalFactoryAdder] = useState<number>(0);
   const [globalWPercentage, setGlobalWPercentage] = useState<number>(0);
 
   useEffect(() => {
-    // Collect active values assigned inside context index state scope
     const storedFactory = localStorage.getItem("factory_adder");
     const storedW = localStorage.getItem("w_percentage");
     
@@ -42,14 +45,36 @@ function ItemsPage() {
     }
   }, []);
 
-  // Mathematical Calculation Logic Core: factory adders + % adder = todays rate
   const calculateTodaysRate = (itemFactoryAdder: number, itemWPercentage: number) => {
     const baseFactoryValue = itemFactoryAdder || globalFactoryAdder;
     const activeWPercent = itemWPercentage !== undefined && itemWPercentage !== 0 ? itemWPercentage : globalWPercentage;
-    
-    // Calculates % premium added back onto baseline values directly
     const percentCompoundModifier = baseFactoryValue * (activeWPercent / 100);
     return baseFactoryValue + percentCompoundModifier;
+  };
+
+  const addToCart = (item: any) => {
+    const computedRate = calculateTodaysRate(item.factory_adder, item.w_percentage);
+    setCart((prev) => [...prev, { ...item, party_rate: computedRate }]);
+  };
+
+  const updateCartItemRate = (id: string, newRate: number) => {
+    setCart((prev) => prev.map(item => item.id === id ? { ...item, party_rate: newRate } : item));
+  };
+
+  const removeFromCart = (id: string) => {
+    setCart((prev) => prev.filter(item => item.id !== id));
+  };
+
+  const exportPDF = async () => {
+    if (!cartRef.current) return;
+    const canvas = await html2canvas(cartRef.current);
+    const imgData = canvas.toDataURL("image/png");
+    const pdf = new jsPDF("p", "mm", "a4");
+    const imgProps = pdf.getImageProperties(imgData);
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+    pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+    pdf.save("quotation.pdf");
   };
 
   const filteredItems = items.filter(
@@ -66,9 +91,54 @@ function ItemsPage() {
           <p className="text-muted-foreground">Track inventory classifications and live calculations matching global coefficients.</p>
         </div>
 
-        <div className="flex items-center gap-2 text-xs bg-slate-100 dark:bg-slate-800 p-2 rounded-md border border-dashed">
-          <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-          <span>Formulations automatically updated using active metrics configuration settings layout sheets.</span>
+        <div className="flex items-center gap-4">
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <ShoppingCart className="h-4 w-4" />
+                View Cart ({cart.length})
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-3xl">
+              <DialogHeader>
+                <DialogTitle>Quotation Cart</DialogTitle>
+              </DialogHeader>
+              <div ref={cartRef} className="p-4 bg-white dark:bg-background border rounded-lg">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Item</TableHead>
+                      <TableHead>Party Rate (Editable)</TableHead>
+                      <TableHead className="w-16"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {cart.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell>{item.name}</TableCell>
+                        <TableCell>
+                          <Input 
+                            type="number" 
+                            className="w-32"
+                            value={item.party_rate} 
+                            onChange={(e) => updateCartItemRate(item.id, parseFloat(e.target.value))}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Button variant="ghost" size="icon" onClick={() => removeFromCart(item.id)}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <Button onClick={exportPDF} className="w-full gap-2">
+                <Download className="h-4 w-4" /> Export as PDF
+              </Button>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -99,38 +169,31 @@ function ItemsPage() {
                 <TableRow>
                   <TableHead className="font-semibold text-foreground">Code Index</TableHead>
                   <TableHead className="font-semibold text-foreground">Item Description</TableHead>
-                  <TableHead className="font-semibold text-right text-foreground">Base Factory Adder</TableHead>
-                  <TableHead className="font-semibold text-right text-blue-600 dark:text-blue-400">Weight Adder (w)</TableHead>
-                  <TableHead className="font-semibold text-right text-green-600 dark:text-green-400">Today's Rate</TableHead>
+                  <TableHead className="font-semibold text-right text-foreground">Today's Rate</TableHead>
+                  <TableHead className="font-semibold text-center text-foreground">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredItems.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
                       No materials matching catalog search filters found.
                     </TableCell>
                   </TableRow>
                 ) : (
                   filteredItems.map((item) => {
-                    const activeFactoryRate = item.factory_adder || globalFactoryAdder;
-                    const activePercentageW = item.w_percentage !== undefined && item.w_percentage !== 0 ? item.w_percentage : globalWPercentage;
                     const computedTodaysRate = calculateTodaysRate(item.factory_adder, item.w_percentage);
-
                     return (
                       <TableRow key={item.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/40 transition-colors">
                         <TableCell className="font-mono text-xs text-muted-foreground">{item.code}</TableCell>
                         <TableCell className="font-medium text-foreground">{item.name}</TableCell>
-                        <TableCell className="text-right font-mono">
-                          ₹{activeFactoryRate.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-blue-600 dark:text-blue-400 font-medium">
-                          <Badge variant="secondary" className="font-sans text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-900">
-                            {activePercentageW}%
-                          </Badge>
-                        </TableCell>
                         <TableCell className="text-right font-mono font-bold text-green-600 dark:text-green-400 text-base">
                           ₹{computedTodaysRate.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Button size="sm" variant="outline" onClick={() => addToCart(item)} className="gap-1">
+                            <Plus className="h-3.5 w-3.5" /> Add
+                          </Button>
                         </TableCell>
                       </TableRow>
                     );
