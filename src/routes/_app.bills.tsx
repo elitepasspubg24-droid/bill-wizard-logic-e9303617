@@ -161,16 +161,12 @@ function EditBillDialog({
     },
 
     onSuccess: () => {
-
-      toast.success("Bill updated");
-
-      qc.invalidateQueries({ queryKey: ["bills"] });
-
-      qc.invalidateQueries({ queryKey: ["items"] });
-
-      onClose();
-
-    },
+  toast.success("Bill updated");
+  qc.invalidateQueries({ queryKey: ["bills"] });
+  qc.invalidateQueries({ queryKey: ["items"] });
+  qc.invalidateQueries({ queryKey: ["item_history"] }); // Add this line
+  onClose();
+},
 
     onError: (e: any) => toast.error(e.message),
 
@@ -456,17 +452,13 @@ function DeleteBillDialog({
 
     },
 
-    onSuccess: () => {
-
-      toast.success("Bill deleted and stock reversed");
-
-      qc.invalidateQueries({ queryKey: ["bills"] });
-
-      qc.invalidateQueries({ queryKey: ["items"] });
-
-      onClose();
-
-    },
+  onSuccess: () => {
+  toast.success("Bill deleted and stock reversed");
+  qc.invalidateQueries({ queryKey: ["bills"] });
+  qc.invalidateQueries({ queryKey: ["items"] });
+  qc.invalidateQueries({ queryKey: ["item_history"] }); // Add this line
+  onClose();
+},
 
     onError: (e: any) => toast.error(e.message),
 
@@ -820,19 +812,14 @@ function BillsPage() {
 
     },
 
-    onSuccess: () => {
-
-      toast.success("Bill saved");
-
-      setDraft(null); setFile(null); setMatches([]); setLinkSaudaId("none");
-
-      qc.invalidateQueries({ queryKey: ["bills"] });
-
-      qc.invalidateQueries({ queryKey: ["items"] });
-
-      qc.invalidateQueries({ queryKey: ["saudas"] });
-
-    },
+onSuccess: () => {
+  toast.success("Bill saved");
+  setDraft(null); setFile(null); setMatches([]); setLinkSaudaId("none");
+  qc.invalidateQueries({ queryKey: ["bills"] });
+  qc.invalidateQueries({ queryKey: ["items"] });
+  qc.invalidateQueries({ queryKey: ["saudas"] });
+  qc.invalidateQueries({ queryKey: ["item_history"] }); // Add this line
+},
 
     onError: (e: any) => toast.error(e.message),
 
