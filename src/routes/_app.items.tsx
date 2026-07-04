@@ -117,16 +117,39 @@ function ItemsPage() {
 
   // Fetch last 3 purchases for the selected item
   const itemHistory = useQuery({
-    queryKey: ["item_history", historyItem?.id],
-    queryFn: async () => {
-      if (!historyItem?.id) return [];
-      
-      const { data, error } = await supabase
-        .from("purchase_history")
-        .select("vendor_name, purchase_date, rate")
-        .eq("item_id", historyItem.id)
-        .order("purchase_date", { ascending: false })
-        .limit(3);
+  queryKey: ["item_history", historyItem?.id],
+  queryFn: async () => {
+    if (!historyItem?.id) return [];
+    
+    // Explicitly joining bills and bill_items to get the latest data 
+    // even if the 'purchase_history' view isn't perfectly set up
+    const { data, error } = await supabase
+      .from("bill_items")
+      .select(`
+        rate,
+        bills (
+          vendor,
+          bill_date
+        )
+      `)
+      .eq("item_id", historyItem.id)
+      .order("created_at", { ascending: false }) // Use created_at or bill_date
+      .limit(3);
+
+    if (error) {
+      console.error(error);
+      return [];
+    }
+
+    // Map the nested join to the flat structure the UI expects
+    return data.map(row => ({
+      vendor_name: (row.bills as any)?.vendor || "Unknown",
+      purchase_date: (row.bills as any)?.bill_date,
+      rate: row.rate
+    }));
+  },
+  enabled: !!historyItem,
+});
 
       // Fallback demo data if the table doesn't exist yet so you can preview the modal
       if (error || !data || data.length === 0) {
