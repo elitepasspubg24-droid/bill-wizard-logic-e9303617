@@ -620,4 +620,3 @@ function BillsPage() {
     </div>
   );
 }
- 
