@@ -116,17 +116,21 @@ function ItemsPage() {
   });
 
   // Fetch last 3 purchases for the selected item
-  const itemHistory = useQuery({
-    queryKey: ["item_history", historyItem?.id],
-    queryFn: async () => {
-      if (!historyItem?.id) return [];
-      
-      const { data, error } = await supabase
-        .from("purchase_history")
-        .select("vendor_name, purchase_date, rate")
-        .eq("item_id", historyItem.id)
-        .order("purchase_date", { ascending: false })
-        .limit(3);
+ const { data: historyData, isLoading } = useQuery({
+  queryKey: ["purchase_history", selectedItemId],
+  queryFn: async () => {
+    const { data, error } = await supabase
+      .from("purchase_history")
+      .select("vendor_name, purchase_date, rate")
+      .eq("item_id", selectedItemId)
+      .order("purchase_date", { ascending: false })
+      .limit(5);
+
+    if (error) throw error;
+    return data;
+  },
+  enabled: !!selectedItemId,
+});
 
       // Fallback demo data if the table doesn't exist yet so you can preview the modal
       if (error || !data || data.length === 0) {
