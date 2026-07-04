@@ -92,7 +92,8 @@ ${catalogText}`;
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-pro",
+        model: "openai/gpt-5",
+        service_tier: "priority",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userContent },
