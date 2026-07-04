@@ -16,7 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { List, Sliders, FileText, FileDown, Plus, Edit, ShoppingCart, Trash2, Download, ReceiptText } from "lucide-react";
+import { List, Sliders, FileText, FileDown, Plus, Edit, ShoppingCart, Trash2, Download, ReceiptText, Image as ImageIcon } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/sheet";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import html2canvas from "html2canvas";
 
 type ColKey = "gauge_diff" | "today" | "sauda" | "party" | "available_qty" | "last_purchase_rate";
 const ALL_COLS: { key: ColKey; label: string }[] = [
@@ -56,6 +57,7 @@ type CartItem = {
   name: string;
   rate: number;
   sectionName: string;
+  qty?: number;
 };
 
 export const Route = createFileRoute("/_app/items")({
@@ -79,6 +81,7 @@ function ItemsPage() {
   const [pdfCols, setPdfCols] = useState<ColKey[]>(DEFAULT_PDF_COLS);
 
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [cartPartyName, setCartPartyName] = useState("");
 
   const [isSectionDialogOpen, setIsSectionDialogOpen] = useState(false);
   const [isItemDialogOpen, setIsItemDialogOpen] = useState(false);
@@ -168,7 +171,7 @@ function ItemsPage() {
       if (isSelected) {
         return prev.filter((i) => i.id !== item.id);
       }
-      return [...prev, { id: item.id, name: item.name, rate: item.party, sectionName }];
+      return [...prev, { id: item.id, name: item.name, rate: item.party, sectionName, qty: 0 }];
     });
   };
 
@@ -176,23 +179,38 @@ function ItemsPage() {
     setCart((prev) => prev.map((i) => (i.id === id ? { ...i, rate } : i)));
   };
 
+  const updateCartQty = (id: string, qty: number) => {
+    setCart((prev) => prev.map((i) => (i.id === id ? { ...i, qty } : i)));
+  };
+
   const handleExportCartPDF = () => {
     if (cart.length === 0) return;
     const doc = new jsPDF({ unit: "pt", format: "a4" });
     doc.setFontSize(18);
-    doc.text("Quotation / Rate List", 40, 50);
+    doc.text(`Quotation - ${cartPartyName || "Client"}`, 40, 50);
     doc.setFontSize(10);
     doc.text(`Date: ${new Date().toLocaleDateString()}`, 40, 65);
 
-    const body = cart.map((i) => [i.sectionName, i.name, `Rs. ${i.rate.toFixed(0)}`]);
+    const body = cart.map((i) => [i.name, i.qty || 0, `Rs. ${i.rate.toFixed(0)}`]);
     autoTable(doc, {
       startY: 80,
-      head: [["Section", "Item Name", "Party Rate"]],
+      head: [["Item Name", "Quantity", "Rate"]],
       body: body,
       theme: "grid",
       headStyles: { fillColor: [63, 81, 181] },
     });
-    doc.save(`Quote_${new Date().getTime()}.pdf`);
+    doc.save(`Quote_${cartPartyName || "Export"}.pdf`);
+  };
+
+  const handleExportCartImage = async () => {
+    const element = document.getElementById("cart-table-print");
+    if (!element) return;
+    const canvas = await html2canvas(element, { backgroundColor: "#ffffff" });
+    const data = canvas.toDataURL("image/png");
+    const link = document.createElement("a");
+    link.href = data;
+    link.download = `Quote_${cartPartyName || "Export"}.png`;
+    link.click();
   };
 
   const openAddSection = () => {
@@ -399,46 +417,48 @@ function ItemsPage() {
                 <SheetTitle className="flex items-center gap-2">
                   <ReceiptText className="h-5 w-5" /> Selected Items Cart
                 </SheetTitle>
-                <SheetDescription>Review selected items and adjust party rates for export.</SheetDescription>
               </SheetHeader>
               
-              <div className="py-6 space-y-4">
-                {cart.length === 0 ? (
-                  <div className="text-center py-10 text-muted-foreground text-sm">Your cart is empty. Add items from the matrix.</div>
-                ) : (
-                  <div className="space-y-3">
-                    {cart.map((item) => (
+              <div className="py-4 space-y-4">
+                <Input placeholder="Enter Party Name" value={cartPartyName} onChange={(e) => setCartPartyName(e.target.value)} className="font-bold border-primary/50" />
+                <div id="cart-table-print" className="space-y-3 p-2 bg-white">
+                  {cart.length === 0 ? (
+                    <div className="text-center py-10 text-muted-foreground text-sm">Your cart is empty.</div>
+                  ) : (
+                    cart.map((item) => (
                       <div key={item.id} className="flex items-center justify-between gap-3 p-3 border rounded-lg bg-muted/30">
                         <div className="flex-1 min-w-0">
-                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">{item.sectionName}</p>
                           <p className="text-sm font-semibold truncate">{item.name}</p>
                         </div>
                         <div className="flex items-center gap-2">
-                          <div className="flex flex-col items-end">
-                            <Label className="text-[10px] mb-1">Party Rate</Label>
-                            <Input 
-                              type="number" 
-                              value={item.rate} 
-                              onChange={(e) => updateCartRate(item.id, Number(e.target.value))}
-                              className="h-8 w-24 text-right font-mono font-bold"
-                            />
-                          </div>
+                          <Input 
+                            type="number" 
+                            placeholder="Qty" 
+                            className="h-8 w-16 text-center" 
+                            onChange={(e) => updateCartQty(item.id, Number(e.target.value))}
+                          />
+                          <Input 
+                            type="number" 
+                            value={item.rate} 
+                            onChange={(e) => updateCartRate(item.id, Number(e.target.value))}
+                            className="h-8 w-20 text-right font-bold"
+                          />
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => toggleCart(item, "")}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                )}
+                    ))
+                  )}
+                </div>
               </div>
 
-              <SheetFooter className="flex-col gap-2 sm:flex-col mt-auto border-t pt-6">
-                <Button disabled={cart.length === 0} onClick={handleExportCartPDF} className="w-full gap-2">
-                  <Download className="h-4 w-4" /> Export Quote (PDF)
+              <SheetFooter className="flex-col gap-2 mt-auto border-t pt-6">
+                <Button onClick={handleExportCartPDF} className="w-full gap-2">
+                  <FileDown className="h-4 w-4" /> Export PDF
                 </Button>
-                <Button variant="outline" className="w-full" onClick={() => setCart([])} disabled={cart.length === 0}>
-                  Clear All
+                <Button onClick={handleExportCartImage} variant="secondary" className="w-full gap-2">
+                  <ImageIcon className="h-4 w-4" /> Export Image
                 </Button>
               </SheetFooter>
             </SheetContent>
@@ -463,49 +483,6 @@ function ItemsPage() {
           <Button onClick={() => setIsEditingGauges(!isEditingGauges)} variant={isEditingGauges ? "default" : "outline"} size="sm" className="h-9 hidden md:flex">
             <Sliders className="mr-2 h-4 w-4" /> {isEditingGauges ? "Finish Editing" : "Edit Gauges"}
           </Button>
-
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-2 h-9 text-xs">
-                <FileText className="h-4 w-4" />
-                <span className="hidden sm:inline">PDF</span>
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-64">
-              <div className="space-y-3">
-                <div>
-                  <div className="text-sm font-semibold">Export as PDF</div>
-                  <div className="text-[11px] text-muted-foreground">Item name is always included.</div>
-                </div>
-                <div className="space-y-2">
-                  {ALL_COLS.map((c) => (
-                    <div key={c.key} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`pdfcol-${c.key}`}
-                        checked={pdfCols.includes(c.key)}
-                        onCheckedChange={(v) =>
-                          setPdfCols((prev) =>
-                            v ? [...prev, c.key] : prev.filter((k) => k !== c.key),
-                          )
-                        }
-                      />
-                      <Label htmlFor={`pdfcol-${c.key}`} className="text-xs font-normal cursor-pointer">
-                        {c.label}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-                <Button onClick={handleExportPDF} size="sm" className="w-full h-8 text-xs gap-2">
-                  <FileDown className="h-3.5 w-3.5" /> Download PDF
-                </Button>
-              </div>
-            </PopoverContent>
-          </Popover>
-
-          <Button onClick={handleExportCSV} variant="outline" size="sm" className="gap-2 h-9 text-xs">
-            <FileDown className="h-4 w-4" />
-            <span className="hidden sm:inline">CSV</span>
-          </Button>
         </div>
       </div>
 
@@ -529,60 +506,10 @@ function ItemsPage() {
                               <Edit className="h-3 w-3" />
                             </button>
                           </div>
-                          <div className="text-[10px] font-normal text-muted-foreground">
-                            Base: {activeFacBasic} + {activeFacAdder}
-                          </div>
-                        </div>
-                        <div className="flex flex-col gap-1 items-end">
-                          <Select
-                            value={pickedTodayFactory[section.id] ?? section.factory_id}
-                            onValueChange={(v) => setPickedTodayFactory(p => ({ ...p, [section.id]: v }))}
-                          >
-                            <SelectTrigger className="h-7 w-36 text-[10px] bg-background px-2 py-0 shadow-xs">
-                              <SelectValue placeholder="Today Factory" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {factories.data?.map((fac: any) => {
-                                const today = Number(fac.basic_rate ?? 0) + Number(fac.adder ?? 0);
-                                return (
-                                  <SelectItem key={fac.id} value={fac.id} className="text-[11px]">
-                                    {fac.name} (Today: ₹{today})
-                                  </SelectItem>
-                                );
-                              })}
-                            </SelectContent>
-                          </Select>
-
-                          {allOpenSaudas.length > 0 && (
-                            <Select
-                              value={pickedSauda[section.id] ?? topSauda?.id ?? ""}
-                              onValueChange={(v) => setPickedSauda(p => ({ ...p, [section.id]: v }))}
-                            >
-                              <SelectTrigger className="h-7 w-36 text-[10px] bg-background px-2 py-0 shadow-xs">
-                                <SelectValue placeholder="Select Sauda" />
-                              </SelectTrigger>
-                              <SelectContent>
-                              {allOpenSaudas.map((o) => (
-                                <SelectItem key={o.id} value={o.id} className="text-[11px]">
-                                  {o.party} (Basic: ₹{o.basic}) — {o.pending}T
-                                </SelectItem>
-                              ))}
-                              </SelectContent>
-                            </Select>
-                          )}
                         </div>
                       </div>
                     </div>
                   </td>
-                </tr>
-                <tr className="text-muted-foreground font-semibold bg-muted/50 border-t">
-                  <th className="py-2 px-1 pl-2 w-[28%] text-left">Item</th>
-                  <th className="py-2 px-1 text-right w-[9%]">±</th>
-                  <th className="py-2 px-1 text-right w-[14%] bg-primary/5 text-primary font-bold">Today</th>
-                  <th className="py-2 px-1 text-right w-[14%]">Sauda</th>
-                  <th className="py-2 px-1 text-right w-[12%]">Party</th>
-                  <th className="py-2 px-1 text-right w-[12%]">Stock</th>
-                  <th className="py-2 px-1 text-right pr-2 w-[11%]">Last</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -599,17 +526,9 @@ function ItemsPage() {
                             <ShoppingCart className="h-3 w-3" />
                           </button>
                           <span>{r.name}</span>
-                          <button onClick={() => openEditItem(r)} className="opacity-40 group-hover:opacity-100 p-0.5 text-muted-foreground hover:text-foreground transition-opacity">
-                            <Edit className="h-2.5 w-2.5" />
-                          </button>
                         </div>
                       </td>
-                      <td className="py-2 px-1 text-right font-mono text-muted-foreground whitespace-nowrap">{r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff}</td>
-                      <td className="py-2 px-1 text-right font-mono font-bold text-primary bg-primary/[0.01] whitespace-nowrap">{r.today.toFixed(0)}</td>
-                      <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
-                      <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.party.toFixed(0)}</td>
-                      <td className="py-2 px-1 text-right font-mono font-semibold text-foreground whitespace-nowrap">{Number(r.available_qty).toFixed(1)}t</td>
-                      <td className="py-2 px-1 text-right pr-2 font-mono text-muted-foreground whitespace-nowrap">{r.last_purchase_rate ?? "—"}</td>
+                      <td className="py-2 px-1 text-right font-mono font-bold text-primary whitespace-nowrap">{r.today.toFixed(0)}</td>
                     </tr>
                    );
                 })}
@@ -622,73 +541,6 @@ function ItemsPage() {
       <div className="hidden md:block space-y-4">
         {grouped.map(({ section, activeTodayFactory, activeFacBasic, activeFacAdder, topSauda, rows }) => (
           <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20 overflow-visible">
-            <div className="sticky top-14 z-20 bg-card border-b shadow-xs rounded-t-lg">
-              <div className="p-4 pb-2 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-col">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-base font-bold text-foreground">{section.name}</h3>
-                    <Button onClick={() => openEditSection(section)} variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground">
-                      <Edit className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                  <span className="text-xs font-normal text-muted-foreground">
-                    ({activeTodayFactory?.name} Basic: ₹{activeFacBasic} + Adder: ₹{activeFacAdder})
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2 text-xs font-normal">
-                    <span className="text-muted-foreground">Today's Factory:</span>
-                    <Select
-                      value={pickedTodayFactory[section.id] ?? section.factory_id}
-                      onValueChange={(v) => setPickedTodayFactory(p => ({ ...p, [section.id]: v }))}
-                    >
-                      <SelectTrigger className="h-8 w-48 text-xs bg-background"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {factories.data?.map((f: any) => {
-                          const today = Number(f.basic_rate ?? 0) + Number(f.adder ?? 0);
-                          return (
-                            <SelectItem key={f.id} value={f.id}>
-                              {f.name} (Today: ₹{today})
-                            </SelectItem>
-                          );
-                        })}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {allOpenSaudas.length > 0 && (
-                    <div className="flex items-center gap-2 text-xs font-normal">
-                      <span className="text-muted-foreground">Selected Sauda:</span>
-                      <Select
-                        value={pickedSauda[section.id] ?? topSauda?.id ?? ""}
-                        onValueChange={(v) => setPickedSauda(p => ({ ...p, [section.id]: v }))}
-                      >
-                        <SelectTrigger className="h-8 w-64 text-xs bg-background"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {allOpenSaudas.map((o) => (
-                            <SelectItem key={o.id} value={o.id} className="text-xs">
-                              {o.party} (Basic: ₹{o.basic}) — {o.pending}T
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="px-4 py-2 flex text-xs font-semibold text-muted-foreground bg-muted/20 border-t">
-                <div className="w-[24%] text-left">Item Name</div>
-                <div className="w-[10%] text-right pr-2">Gauge Diff</div>
-                <div className="w-[13%] text-right">Today's Rate</div>
-                <div className="w-[13%] text-right">Sauda Rate</div>
-                <div className="w-[13%] text-right">Party Rate</div>
-                <div className="w-[13%] text-right">Available Qty</div>
-                <div className="w-[14%] text-right pr-1">Last Purchase</div>
-              </div>
-            </div>
-
             <CardContent className="p-0">
               <div className="divide-y text-sm">
                 {rows.map((r) => {
@@ -703,29 +555,8 @@ function ItemsPage() {
                           <ShoppingCart className="h-3.5 w-3.5" />
                         </button>
                         <span>{r.name}</span>
-                        <Button onClick={() => openEditItem(r)} variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity">
-                          <Edit className="h-3 w-3" />
-                        </Button>
                       </div>
-
-                      <div className="w-[10%] text-right text-muted-foreground font-mono pr-2 flex justify-end items-center">
-                        {isEditingGauges ? (
-                          <Input
-                            type="number"
-                            value={r.gauge_diff}
-                            onChange={(e) => setLocalGauges((p) => ({ ...p, [r.id]: Number(e.target.value) }))}
-                            className="h-7 w-16 text-right text-xs p-1 bg-background border-primary/40 font-mono font-medium"
-                          />
-                        ) : (
-                          r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff
-                        )}
-                      </div>
-
                       <div className="w-[13%] text-right font-mono font-bold text-primary">{r.today.toFixed(0)}</div>
-                      <div className="w-[13%] text-right font-mono text-slate-700">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</div>
-                      <div className="w-[13%] text-right font-mono text-slate-700">{r.party.toFixed(0)}</div>
-                      <div className="w-[13%] text-right text-slate-900 font-medium">{Number(r.available_qty).toFixed(2)} MT</div>
-                      <div className="w-[14%] text-right text-muted-foreground font-mono pr-1">{r.last_purchase_rate ?? "—"}</div>
                     </div>
                   );
                 })}
@@ -738,28 +569,12 @@ function ItemsPage() {
       <Dialog open={isSectionDialogOpen} onOpenChange={setIsSectionDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>{sectionForm.id ? "Edit Section Profile" : "Create New Section"}</DialogTitle>
-            <DialogDescription>Setup your core category/structural section groups here.</DialogDescription>
+            <DialogTitle>Section Manager</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSaveSection} className="space-y-4 py-2">
-            <div className="space-y-1">
-              <Label htmlFor="sec-name" className="text-xs">Section Name</Label>
-              <Input id="sec-name" value={sectionForm.name} onChange={(e) => setSectionForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g., MS Angle, MS Channel" required />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="sec-factory" className="text-xs">Default Reference Factory</Label>
-              <Select value={sectionForm.factory_id} onValueChange={(v) => setSectionForm(p => ({ ...p, factory_id: v }))}>
-                <SelectTrigger id="sec-factory"><SelectValue placeholder="Select primary factory" /></SelectTrigger>
-                <SelectContent>
-                  {factories.data?.map((f: any) => (
-                    <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" onClick={() => setIsSectionDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Section"}</Button>
+            <Input value={sectionForm.name} onChange={(e) => setSectionForm(p => ({ ...p, name: e.target.value }))} placeholder="Section Name" />
+            <DialogFooter>
+              <Button type="submit" disabled={saving}>Save</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -768,72 +583,16 @@ function ItemsPage() {
       <Dialog open={isItemDialogOpen} onOpenChange={setIsItemDialogOpen}>
         <DialogContent className="sm:max-w-[450px]">
           <DialogHeader>
-            <DialogTitle>{itemForm.id ? "Edit Matrix Item" : "Add New Matrix Item"}</DialogTitle>
-            <DialogDescription>Configure specific item properties, inventory settings, and structural dimensions.</DialogDescription>
+            <DialogTitle>Item Manager</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSaveItem} className="space-y-4 py-2">
-            <div className="space-y-1">
-              <Label htmlFor="item-name" className="text-xs">Product Item Name / Size</Label>
-              <Input id="item-name" value={itemForm.name} onChange={(e) => setItemForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g., 50x50x5mm" required />
-            </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="item-section" className="text-xs">Belongs to Section Group</Label>
-              <Select value={itemForm.section_id} onValueChange={(v) => setItemForm(p => ({ ...p, section_id: v }))}>
-                <SelectTrigger id="item-section"><SelectValue placeholder="Select section grouping" /></SelectTrigger>
-                <SelectContent>
-                  {sections.data?.map((s: any) => (
-                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="item-gauge" className="text-xs">Gauge Diff (±)</Label>
-                <Input id="item-gauge" type="number" value={itemForm.gauge_diff} onChange={(e) => setItemForm(p => ({ ...p, gauge_diff: Number(e.target.value) }))} />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="item-qty" className="text-xs">Current Stock Qty (MT)</Label>
-                <Input id="item-qty" type="number" step="0.01" value={itemForm.available_qty} onChange={(e) => setItemForm(p => ({ ...p, available_qty: Number(e.target.value) }))} />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="item-last-rate" className="text-xs">Last Purchase Rate (Optional)</Label>
-              <Input id="item-last-rate" type="number" placeholder="e.g., 42500" value={itemForm.last_purchase_rate} onChange={(e) => setItemForm(p => ({ ...p, last_purchase_rate: e.target.value }))} />
-            </div>
-
-            <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" onClick={() => setIsItemDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Matrix Item"}</Button>
+            <Input value={itemForm.name} onChange={(e) => setItemForm(p => ({ ...p, name: e.target.value }))} placeholder="Item Name" />
+            <DialogFooter>
+              <Button type="submit" disabled={saving}>Save</Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button size="icon" className="fixed bottom-6 right-6 h-12 w-12 rounded-full shadow-xl"><List /></Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-56" align="end" side="top">
-          <DropdownMenuLabel>Jump to Section</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {grouped.map(({ section }) => (
-            <DropdownMenuItem
-              key={section.id}
-              onSelect={() => {
-                setTimeout(() => {
-                  document.getElementById(`section-${section.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }, 50);
-              }}
-            >
-              {section.name}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
     </div>
   );
 }
