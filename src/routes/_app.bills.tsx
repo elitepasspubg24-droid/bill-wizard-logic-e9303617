@@ -514,7 +514,31 @@ function BillsPage() {
                 setMatches([...matches, null]);
               }}>+ Add Item</Button>
 
-              {/* ... (Sauda linking and Save/Cancel buttons remain the same) ... */}
+               <div className="space-y-1">
+                <Label>Link to Sauda (optional)</Label>
+                <Select value={linkSaudaId} onValueChange={setLinkSaudaId}>
+                  <SelectTrigger className="w-full max-w-md"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— none —</SelectItem>
+                    {saudas.data?.filter((s: any) => s.status !== "done").map((s: any) => {
+                      const itemsTotal = (s.sauda_items ?? []).reduce((a: number, r: any) => a + Number(r.qty || 0), 0);
+                      const totalQty = Number(s.total_qty || 0) || itemsTotal;
+                      const pending = Math.max(0, totalQty - Number(s.lifted_qty || 0));
+                      return (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.party_name} — {s.sauda_date} — basic {s.sauda_basic} — pending {pending}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={() => save.mutate()} disabled={save.isPending}>
+                  {save.isPending ? "Saving…" : "Save Bill & Update Stock"}
+                </Button>
+                <Button variant="outline" onClick={() => { setDraft(null); setMatches([]); setLinkSaudaId("none"); }}>Cancel</Button>
+              </div>
             </div>
           )}
         </CardContent>
