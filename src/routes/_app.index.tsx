@@ -63,6 +63,7 @@ function RatesPage() {
         basic_rate: Number(newFactoryRate),
         adder: 0,
         party_adder: 0,
+        w: "0",
         updated_at: new Date().toISOString(),
       });
       if (error) throw error;
@@ -203,7 +204,10 @@ function RatesPage() {
 
 function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: () => void }) {
   const [adders, setAdders] = useState<Record<string, string>>({});
+  const [wAdders, setWAdders] = useState<Record<string, string>>({});
   const [pAdders, setPAdders] = useState<Record<string, string>>({});
+  
+  const [globalWAdder, setGlobalWAdder] = useState("");
   const [globalPartyAdder, setGlobalPartyAdder] = useState("");
 
   useEffect(() => {
@@ -212,12 +216,26 @@ function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: 
       for (const f of factories) next[f.id] = prev[f.id] ?? String(f.adder ?? 0);
       return next;
     });
+    setWAdders((prev) => {
+      const next: Record<string, string> = {};
+      for (const f of factories) next[f.id] = prev[f.id] ?? String(f.w ?? "0");
+      return next;
+    });
     setPAdders((prev) => {
       const next: Record<string, string> = {};
       for (const f of factories) next[f.id] = prev[f.id] ?? String(f.party_adder ?? 0);
       return next;
     });
   }, [factories]);
+
+  const applyGlobalWAdder = () => {
+    setWAdders((prev) => {
+      const next: Record<string, string> = {};
+      for (const f of factories) next[f.id] = globalWAdder;
+      return next;
+    });
+    toast.success(`Applied "${globalWAdder}" to all w adders`);
+  };
 
   const applyGlobalPartyAdder = () => {
     setPAdders((prev) => {
@@ -228,18 +246,36 @@ function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: 
     toast.success("Applied party adder to all factories");
   };
 
+  // Helper logic to parse flat number vs percentage configurations
+  const calculateWValue = (base: number, configString: string) => {
+    const cleanStr = (configString ?? "").trim();
+    if (!cleanStr) return 0;
+
+    if (cleanStr.endsWith("%")) {
+      const percentage = Number(cleanStr.slice(0, -1));
+      return isNaN(percentage) ? 0 : (base * percentage) / 100;
+    }
+    const flatVal = Number(cleanStr);
+    return isNaN(flatVal) ? 0 : flatVal;
+  };
+
   const saveAll = useMutation({
     mutationFn: async () => {
       const failures: string[] = [];
       for (const f of factories) {
         const aVal = Number(adders[f.id]);
+        const wVal = wAdders[f.id] ?? "0";
         const pVal = Number(pAdders[f.id]);
+        
         const aChanged = !isNaN(aVal) && aVal !== Number(f.adder ?? 0);
+        const wChanged = wVal !== String(f.w ?? "0");
         const pChanged = !isNaN(pVal) && pVal !== Number(f.party_adder ?? 0);
-        if (!aChanged && !pChanged) continue;
+        
+        if (!aChanged && !wChanged && !pChanged) continue;
 
         const patch: any = { updated_at: new Date().toISOString() };
         if (aChanged) patch.adder = aVal;
+        if (wChanged) patch.w = wVal;
         if (pChanged) patch.party_adder = pVal;
 
         const { error } = await supabase.from("factories").update(patch).eq("id", f.id);
@@ -256,16 +292,31 @@ function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: 
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center justify-between gap-3">
           <span>Factory Adders</span>
-          <div className="flex items-center gap-2 text-sm font-normal">
-            <Label className="text-xs">Party Adder (all):</Label>
-            <Input
-              className="w-24"
-              type="number"
-              value={globalPartyAdder}
-              onChange={(e) => setGlobalPartyAdder(e.target.value)}
-              placeholder="e.g. 200"
-            />
-            <Button size="sm" variant="secondary" onClick={applyGlobalPartyAdder}>Apply to all</Button>
+          <div className="flex items-center gap-4 text-sm font-normal flex-wrap">
+            <div className="flex items-center gap-2">
+              <Label className="text-xs">w (all):</Label>
+              <Input
+                className="w-24"
+                type="text"
+                value={globalWAdder}
+                onChange={(e) => setGlobalWAdder(e.target.value)}
+                placeholder="e.g. 10% or 100"
+              />
+              <Button size="sm" variant="secondary" onClick={applyGlobalWAdder}>Apply to all</Button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Label className="text-xs">Party Adder (all):</Label>
+              <Input
+                className="w-24"
+                type="number"
+                value={globalPartyAdder}
+                onChange={(e) => setGlobalPartyAdder(e.target.value)}
+                placeholder="e.g. 200"
+              />
+              <Button size="sm" variant="secondary" onClick={applyGlobalPartyAdder}>Apply to all</Button>
+            </div>
+            
             <Button size="sm" onClick={() => saveAll.mutate()} disabled={saveAll.isPending}>
               {saveAll.isPending ? "Saving…" : "Save all"}
             </Button>
@@ -280,6 +331,7 @@ function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: 
               <th className="p-2">Today's Basic</th>
               <th className="p-2">Adder (+)</th>
               <th className="p-2">Today's Rate</th>
+              <th className="p-2">w (+ or %)</th>
               <th className="p-2">Party Adder (+)</th>
               <th className="p-2">Party Rate</th>
             </tr>
@@ -288,9 +340,12 @@ function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: 
             {factories.map((f) => {
               const todayBasic = Number(f.basic_rate ?? 0);
               const adderVal = Number(adders[f.id]) || 0;
-              const pAdderVal = Number(pAdders[f.id]) || 0;
               const todayRate = todayBasic + adderVal;
-              const partyRate = todayRate + pAdderVal;
+              
+              const wValCalculated = calculateWValue(todayRate, wAdders[f.id]);
+              const pAdderVal = Number(pAdders[f.id]) || 0;
+              const partyRate = todayRate + wValCalculated + pAdderVal;
+              
               return (
                 <tr key={f.id} className="border-b">
                   <td className="p-2 font-medium">{f.name}</td>
@@ -304,6 +359,15 @@ function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: 
                     />
                   </td>
                   <td className="p-2 font-mono font-semibold text-primary">{todayRate.toFixed(0)}</td>
+                  <td className="p-2">
+                    <Input
+                      className="w-24"
+                      type="text"
+                      value={wAdders[f.id] ?? ""}
+                      onChange={(e) => setWAdders((prev) => ({ ...prev, [f.id]: e.target.value }))}
+                      placeholder="0"
+                    />
+                  </td>
                   <td className="p-2">
                     <Input
                       className="w-24"
