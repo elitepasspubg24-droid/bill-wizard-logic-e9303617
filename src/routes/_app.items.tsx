@@ -116,10 +116,27 @@ function ItemsPage() {
   });
 
   // Fetch last 3 purchases for the selected item
+ // Fetch last 3 purchases for the selected item using the SQL View
   const itemHistory = useQuery({
-  queryKey: ["item_history", historyItem?.id],
-  queryFn: async () => {
-    if (!historyItem?.id) return [];
+    queryKey: ["item_history", historyItem?.id],
+    queryFn: async () => {
+      if (!historyItem?.id) return [];
+      
+      const { data, error } = await supabase
+        .from("purchase_history") // Query the View directly
+        .select("vendor_name, purchase_date, rate")
+        .eq("item_id", historyItem.id)
+        .limit(3);
+
+      if (error) {
+        console.error("History fetch error:", error);
+        return [];
+      }
+      
+      return data;
+    },
+    enabled: !!historyItem,
+  });
     
     // Explicitly joining bills and bill_items to get the latest data 
     // even if the 'purchase_history' view isn't perfectly set up
