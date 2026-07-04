@@ -754,7 +754,7 @@ function ItemsPage() {
                           onClick={() => setHistoryItem(r)}
                           className="text-primary underline-offset-2 hover:underline font-semibold focus:outline-hidden"
                         >
-                          {r.last_purchase_rate ?? "View"}
+                          {r.last_purchase_rate != null ? r.last_purchase_rate : "—"}
                         </button>
                       </td>
                     </tr>
@@ -878,7 +878,7 @@ function ItemsPage() {
                           onClick={() => setHistoryItem(r)}
                           className="text-primary hover:text-primary/80 underline underline-offset-4 cursor-pointer font-semibold transition-colors focus:outline-hidden"
                         >
-                          {r.last_purchase_rate ?? "View"}
+                          {r.last_purchase_rate != null ? r.last_purchase_rate : "—"}
                         </button>
                       </div>
                     </div>
