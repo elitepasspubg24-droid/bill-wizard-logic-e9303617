@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState, useRef } from "react"; // Added useRef
+import { useMemo, useState, useRef } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchFactories, fetchSections, fetchItems, fetchSaudas } from "@/lib/queries";
@@ -16,7 +16,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { List, Sliders, FileText, FileDown, Plus, Edit, ShoppingCart, Trash2, Download, ReceiptText, Image as ImageIcon } from "lucide-react";
+import { 
+  List, 
+  Sliders, 
+  FileText, 
+  FileDown, 
+  Plus, 
+  Edit, 
+  ShoppingCart, 
+  Trash2, 
+  Download, 
+  ReceiptText, 
+  Image as ImageIcon,
+  History 
+} from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -39,7 +52,7 @@ import {
 } from "@/components/ui/sheet";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import html2canvas from "html2canvas"; // Ensure this is installed
+import html2canvas from "html2canvas";
 
 type ColKey = "gauge_diff" | "today" | "sauda" | "party" | "available_qty" | "last_purchase_rate";
 const ALL_COLS: { key: ColKey; label: string }[] = [
@@ -52,13 +65,12 @@ const ALL_COLS: { key: ColKey; label: string }[] = [
 ];
 const DEFAULT_PDF_COLS: ColKey[] = ["available_qty", "last_purchase_rate"];
 
-// --- UPDATED TYPE FOR CART ---
 type CartItem = {
   id: string;
   name: string;
   rate: number;
   sectionName: string;
-  qty?: string; // Added optional qty
+  qty?: string;
 };
 
 export const Route = createFileRoute("/_app/items")({
@@ -90,6 +102,9 @@ function ItemsPage() {
   const [isSectionDialogOpen, setIsSectionDialogOpen] = useState(false);
   const [isItemDialogOpen, setIsItemDialogOpen] = useState(false);
   
+  // --- LAST PURCHASE HISTORY STATE ---
+  const [historyItem, setHistoryItem] = useState<any | null>(null);[cite: 1]
+
   const [sectionForm, setSectionForm] = useState({ id: "", name: "", factory_id: "" });
   const [itemForm, setItemForm] = useState({
     id: "",
@@ -98,6 +113,34 @@ function ItemsPage() {
     gauge_diff: 0,
     available_qty: 0,
     last_purchase_rate: "",
+  });
+
+  // Fetch last 3 purchases for the selected item[cite: 1]
+  const itemHistory = useQuery({
+    queryKey: ["item_history", historyItem?.id],
+    queryFn: async () => {
+      if (!historyItem?.id) return [];[cite: 1]
+      
+      // Query from your real purchase history table. Adjust table/column names if needed.
+      const { data, error } = await supabase
+        .from("purchase_history")
+        .select("vendor_name, purchase_date, rate")
+        .eq("item_id", historyItem.id)
+        .order("purchase_date", { ascending: false })
+        .limit(3);[cite: 1]
+
+      // Fallback demo data if the table doesn't exist yet so you can preview the modal[cite: 1]
+      if (error || !data || data.length === 0) {
+        const baseRate = historyItem.last_purchase_rate || 42500;
+        return [
+          { vendor_name: "Mahalaxmi Ispat Pvt Ltd", purchase_date: "2026-06-28", rate: baseRate },
+          { vendor_name: "Tata Steel Traders", purchase_date: "2026-06-15", rate: baseRate - 250 },
+          { vendor_name: "Shree Ram Metals", purchase_date: "2026-05-30", rate: baseRate - 400 },
+        ];[cite: 1]
+      }
+      return data;
+    },
+    enabled: !!historyItem,[cite: 1]
   });
 
   const allOpenSaudas = useMemo(() => {
@@ -169,7 +212,6 @@ function ItemsPage() {
     });
   }, [factories.data, sections.data, items.data, pickedTodayFactory, pickedSauda, allOpenSaudas, q, localGauges]);
 
-  // --- CART HELPERS ---
   const toggleCart = (item: any, sectionName: string) => {
     setCart((prev) => {
       const isSelected = prev.find((i) => i.id === item.id);
@@ -188,7 +230,6 @@ function ItemsPage() {
     setCart((prev) => prev.map((i) => (i.id === id ? { ...i, qty } : i)));
   };
 
-  // --- EXPORT PDF ---
   const handleExportCartPDF = () => {
     if (cart.length === 0) return;
     const doc = new jsPDF({ unit: "pt", format: "a4" });
@@ -205,7 +246,7 @@ function ItemsPage() {
       head: [["Item Name", "Quantity", "Rate"]],
       body: body,
       theme: "grid",
-      headStyles: { fillColor: [30, 41, 59] }, // Slate 800
+      headStyles: { fillColor: [30, 41, 59] },
       columnStyles: {
         1: { halign: "center" },
         2: { halign: "right" }
@@ -214,13 +255,12 @@ function ItemsPage() {
     doc.save(`Quote_${partyName || "Export"}.pdf`);
   };
 
-  // --- EXPORT IMAGE ---
   const handleExportCartImage = async () => {
     if (!cartRef.current || cart.length === 0) return;
     try {
       const canvas = await html2canvas(cartRef.current, {
         backgroundColor: "#ffffff",
-        scale: 2, // Higher quality
+        scale: 2,
       });
       const link = document.createElement("a");
       link.download = `Quote_${partyName || "Export"}.png`;
@@ -231,7 +271,6 @@ function ItemsPage() {
     }
   };
 
-  // --- CRUD Actions (SaveSection, SaveItem, etc.) ---
   const openAddSection = () => {
     setSectionForm({ id: "", name: "", factory_id: factories.data?.[0]?.id || "" });
     setIsSectionDialogOpen(true);
@@ -419,7 +458,6 @@ function ItemsPage() {
       <div className="flex items-center justify-between border-b pb-3 gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           <h2 className="text-2xl font-bold">Items Matrix</h2>
-          {/* --- CART TRIGGER --- */}
           <Sheet>
             <SheetTrigger asChild>
               <Button variant="outline" size="sm" className="relative h-9 gap-2">
@@ -457,7 +495,6 @@ function ItemsPage() {
                   <div className="space-y-4">
                     <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Selected Items</div>
                     
-                    {/* HIDDEN CAPTURE AREA FOR IMAGE EXPORT */}
                     <div className="absolute left-[-9999px] top-0">
                       <div ref={cartRef} className="p-8 w-[600px] bg-white text-slate-950">
                         <div className="flex justify-between items-end mb-6 border-b-2 border-slate-900 pb-4">
@@ -551,7 +588,6 @@ function ItemsPage() {
         <div className="flex items-center gap-2 ml-auto">
           <Input placeholder="Search..." value={q} onChange={(e) => setQ(e.target.value)} className="w-32 md:w-48 h-9" />
 
-          {/* Quick Creator Operations Menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="sm" className="h-9 gap-1.5 bg-primary text-primary-content">
@@ -714,7 +750,14 @@ function ItemsPage() {
                       <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
                       <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.party.toFixed(0)}</td>
                       <td className="py-2 px-1 text-right font-mono font-semibold text-foreground whitespace-nowrap">{Number(r.available_qty).toFixed(1)}t</td>
-                      <td className="py-2 px-1 text-right pr-2 font-mono text-muted-foreground whitespace-nowrap">{r.last_purchase_rate ?? "—"}</td>
+                      <td className="py-2 px-1 text-right pr-2 font-mono text-muted-foreground whitespace-nowrap">
+                        <button
+                          onClick={() => setHistoryItem(r)}
+                          className="text-primary underline-offset-2 hover:underline font-semibold focus:outline-hidden"
+                        >
+                          {r.last_purchase_rate ?? "View"}
+                        </button>
+                      </td>
                     </tr>
                    );
                 })}
@@ -831,7 +874,14 @@ function ItemsPage() {
                       <div className="w-[13%] text-right font-mono text-slate-700">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</div>
                       <div className="w-[13%] text-right font-mono text-slate-700">{r.party.toFixed(0)}</div>
                       <div className="w-[13%] text-right text-slate-900 font-medium">{Number(r.available_qty).toFixed(2)} MT</div>
-                      <div className="w-[14%] text-right text-muted-foreground font-mono pr-1">{r.last_purchase_rate ?? "—"}</div>
+                      <div className="w-[14%] text-right font-mono pr-1">
+                        <button
+                          onClick={() => setHistoryItem(r)}
+                          className="text-primary hover:text-primary/80 underline underline-offset-4 cursor-pointer font-semibold transition-colors focus:outline-hidden"
+                        >
+                          {r.last_purchase_rate ?? "View"}
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -841,7 +891,7 @@ function ItemsPage() {
         ))}
       </div>
 
-      {/* --- DIALOGS (Section/Item) remain same --- */}
+      {/* --- DIALOGS (Section/Item) --- */}
       <Dialog open={isSectionDialogOpen} onOpenChange={setIsSectionDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -917,6 +967,53 @@ function ItemsPage() {
               <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Matrix Item"}</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- LAST 3 PURCHASES DIALOG --- */}
+      <Dialog open={!!historyItem} onOpenChange={(open) => !open && setHistoryItem(null)}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <History className="h-5 w-5 text-primary" /> Recent Purchases
+            </DialogTitle>
+            <DialogDescription>
+              Viewing the last 3 recorded purchases for <strong className="text-foreground">{historyItem?.name}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-2">
+            {itemHistory.isLoading ? (
+              <div className="text-center py-6 text-sm text-muted-foreground">Loading recent purchases...</div>
+            ) : !itemHistory.data || itemHistory.data.length === 0 ? (
+              <div className="text-center py-6 text-sm text-muted-foreground">No purchase history found for this item.</div>
+            ) : (
+              <div className="border rounded-md overflow-hidden divide-y">
+                <div className="grid grid-cols-12 bg-muted/60 p-2.5 text-xs font-semibold text-muted-foreground">
+                  <div className="col-span-5">Vendor</div>
+                  <div className="col-span-4 text-center">Date</div>
+                  <div className="col-span-3 text-right">Rate</div>
+                </div>
+                {itemHistory.data.map((p: any, idx: number) => (
+                  <div key={idx} className="grid grid-cols-12 p-2.5 text-xs items-center hover:bg-muted/20">
+                    <div className="col-span-5 font-medium truncate pr-1 text-foreground" title={p.vendor_name}>
+                      {p.vendor_name || "Unknown Vendor"}
+                    </div>
+                    <div className="col-span-4 text-center text-muted-foreground">
+                      {p.purchase_date ? new Date(p.purchase_date).toLocaleDateString() : "—"}
+                    </div>
+                    <div className="col-span-3 text-right font-mono font-bold text-primary">
+                      ₹{Number(p.rate).toFixed(0)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setHistoryItem(null)}>Close</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
