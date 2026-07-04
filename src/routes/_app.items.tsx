@@ -12,8 +12,8 @@ export const Route = createFileRoute("/_app/items")({
 
 // Safe initial dataset fallback matrix structure
 const INITIAL_DEMO_ITEMS = [
-  { id: "1", name: "Structural Steel Angle", code: "ST-ANG-01", factory_adder: 45000, party_adder: 1200, w_percentage: 0 },
-  { id: "2", name: "Steel Flat Bar", code: "ST-FLAT-02", factory_adder: 48000, party_adder: 1500, w_percentage: 0 },
+  { id: "1", name: "Structural Steel Angle", code: "ST-ANG-01", factory_adder: 45000, party_adder: 1200, w_percentage: 10 },
+  { id: "2", name: "Steel Flat Bar", code: "ST-FLAT-02", factory_adder: 48000, party_adder: 1500, w_percentage: 12 },
   { id: "3", name: "Round Bar Section", code: "ST-RND-03", factory_adder: 51000, party_adder: 1100, w_percentage: 0 },
 ];
 
@@ -42,12 +42,12 @@ function ItemsPage() {
     }
   }, []);
 
-  // Mathematical Calculation Logic Core: factory adders + % adder = todays rate
-  const calculateTodaysRate = (itemFactoryAdder: number, itemWPercentage: number) => {
-    const baseFactoryValue = itemFactoryAdder || globalFactoryAdder;
-    const activeWPercent = itemWPercentage !== undefined && itemWPercentage !== 0 ? itemWPercentage : globalWPercentage;
+  // Mathematical Calculation Logic Core: factory adder + (factory adder * w / 100) = Today's Rate
+  const calculateTodaysRate = (itemFactoryAdder?: number, itemWPercentage?: number) => {
+    const baseFactoryValue = itemFactoryAdder !== undefined && itemFactoryAdder !== null ? itemFactoryAdder : globalFactoryAdder;
+    const activeWPercent = itemWPercentage !== undefined && itemWPercentage !== null ? itemWPercentage : globalWPercentage;
     
-    // Calculates % premium added back onto baseline values directly
+    // Calculates % markup added back onto baseline values directly
     const percentCompoundModifier = baseFactoryValue * (activeWPercent / 100);
     return baseFactoryValue + percentCompoundModifier;
   };
@@ -68,7 +68,7 @@ function ItemsPage() {
 
         <div className="flex items-center gap-2 text-xs bg-slate-100 dark:bg-slate-800 p-2 rounded-md border border-dashed">
           <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-          <span>Formulations automatically updated using active metrics configuration settings layout sheets.</span>
+          <span>Formulations automatically updated using active configuration settings.</span>
         </div>
       </div>
 
@@ -99,22 +99,24 @@ function ItemsPage() {
                 <TableRow>
                   <TableHead className="font-semibold text-foreground">Code Index</TableHead>
                   <TableHead className="font-semibold text-foreground">Item Description</TableHead>
-                  <TableHead className="font-semibold text-right text-foreground">Base Factory Adder</TableHead>
-                  <TableHead className="font-semibold text-right text-blue-600 dark:text-blue-400">Weight Adder (w)</TableHead>
+                  <TableHead className="font-semibold text-right text-foreground">Base Factory</TableHead>
+                  <TableHead className="font-semibold text-right text-blue-600 dark:text-blue-400">% Adder (w)</TableHead>
+                  <TableHead className="font-semibold text-right text-foreground">Party Adder</TableHead>
                   <TableHead className="font-semibold text-right text-green-600 dark:text-green-400">Today's Rate</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredItems.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                       No materials matching catalog search filters found.
                     </TableCell>
                   </TableRow>
                 ) : (
                   filteredItems.map((item) => {
-                    const activeFactoryRate = item.factory_adder || globalFactoryAdder;
-                    const activePercentageW = item.w_percentage !== undefined && item.w_percentage !== 0 ? item.w_percentage : globalWPercentage;
+                    const activeFactoryRate = item.factory_adder !== undefined ? item.factory_adder : globalFactoryAdder;
+                    const activePercentageW = item.w_percentage !== undefined && item.w_percentage !== null ? item.w_percentage : globalWPercentage;
+                    const activePartyAdder = item.party_adder || 0;
                     const computedTodaysRate = calculateTodaysRate(item.factory_adder, item.w_percentage);
 
                     return (
@@ -128,6 +130,9 @@ function ItemsPage() {
                           <Badge variant="secondary" className="font-sans text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-900">
                             {activePercentageW}%
                           </Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-mono">
+                          ₹{activePartyAdder.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                         </TableCell>
                         <TableCell className="text-right font-mono font-bold text-green-600 dark:text-green-400 text-base">
                           ₹{computedTodaysRate.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
