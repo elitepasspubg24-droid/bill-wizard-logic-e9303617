@@ -103,7 +103,7 @@ function ItemsPage() {
   const [isItemDialogOpen, setIsItemDialogOpen] = useState(false);
   
   // --- LAST PURCHASE HISTORY STATE ---
-  const [historyItem, setHistoryItem] = useState<any | null>(null);[cite: 1]
+  const [historyItem, setHistoryItem] = useState<any | null>(null);
 
   const [sectionForm, setSectionForm] = useState({ id: "", name: "", factory_id: "" });
   const [itemForm, setItemForm] = useState({
@@ -115,32 +115,31 @@ function ItemsPage() {
     last_purchase_rate: "",
   });
 
-  // Fetch last 3 purchases for the selected item[cite: 1]
+  // Fetch last 3 purchases for the selected item
   const itemHistory = useQuery({
     queryKey: ["item_history", historyItem?.id],
     queryFn: async () => {
-      if (!historyItem?.id) return [];[cite: 1]
+      if (!historyItem?.id) return [];
       
-      // Query from your real purchase history table. Adjust table/column names if needed.
       const { data, error } = await supabase
         .from("purchase_history")
         .select("vendor_name, purchase_date, rate")
         .eq("item_id", historyItem.id)
         .order("purchase_date", { ascending: false })
-        .limit(3);[cite: 1]
+        .limit(3);
 
-      // Fallback demo data if the table doesn't exist yet so you can preview the modal[cite: 1]
+      // Fallback demo data if the table doesn't exist yet so you can preview the modal
       if (error || !data || data.length === 0) {
         const baseRate = historyItem.last_purchase_rate || 42500;
         return [
           { vendor_name: "Mahalaxmi Ispat Pvt Ltd", purchase_date: "2026-06-28", rate: baseRate },
           { vendor_name: "Tata Steel Traders", purchase_date: "2026-06-15", rate: baseRate - 250 },
           { vendor_name: "Shree Ram Metals", purchase_date: "2026-05-30", rate: baseRate - 400 },
-        ];[cite: 1]
+        ];
       }
       return data;
     },
-    enabled: !!historyItem,[cite: 1]
+    enabled: !!historyItem,
   });
 
   const allOpenSaudas = useMemo(() => {
