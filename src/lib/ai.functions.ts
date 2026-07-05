@@ -27,82 +27,83 @@ export const extractBillFromImage = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<ExtractedBill> => {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      throw new Error("GEMINI_API_KEY is missing. Add it to Lovable Secrets.");
+      throw new Error("GEMINI_API_KEY is missing. Please add it to Lovable Secrets.");
     }
 
-    // 1. Clean the data for the API
+    // 1. Prepare Image/PDF data for the API
     const parts = data.dataUrl.split(",");
     const base64Data = parts[1];
     const mimeType = parts[0].split(";")[0].split(":")[1];
 
+    // 2. Format Catalog for AI matching
     const catalog = (data.catalog ?? []).slice(0, 600);
     const catalogText = catalog.length
       ? catalog.map((c) => `${c.id} | ${c.name}${c.section ? ` [${c.section}]` : ""}`).join("\n")
       : "(no catalog provided)";
 
-    // 2. Simplest possible prompt to avoid 400 errors
-    const prompt = `Extract data from this ${data.type} bill. 
-Return a JSON object exactly like this:
-{
-  "vendor": "name",
-  "bill_no": "number",
-  "bill_date": "YYYY-MM-DD",
-  "items": [
-    { "raw_name": "name", "qty": 0.350, "rate": 0, "matched_item_id": "id" }
-  ]
-}
+    // 3. Construct the prompt for the AI
+    const prompt = `You are a data extraction expert for Indian steel trading bills.
+Extract the following details into a single JSON object ONLY. No markdown, no extra text.
+
+FIELDS:
+- vendor: Name of the shop/party at the top (string or null)
+- bill_no: Invoice number (string or null)
+- bill_date: Date in YYYY-MM-DD format (Convert from DD/MM/YYYY or DD-MM-YY)
+- items: Array of objects: { "raw_name": string, "qty": number, "rate": number, "matched_item_id": string or null }
 
 RULES:
-- qty: Use metric tonnes (e.g. 0.350).
-- matched_item_id: Match to this CATALOG:
+1. QTY: Metric Tonnes (e.g., 0.350). Keep decimals EXACTLY as written. IGNORE TOTALS/SUMS.
+2. RATE: Use the rate written on the line. If none, use 0.
+3. MATCHED_ITEM_ID: Match each item's raw_name to the CATALOG ID. Use null if no good match.
+
+CATALOG:
 ${catalogText}`;
 
-    // 3. The Most Robust Endpoint
-    // We use v1beta because it's the only one that reliably supports the Flash 1.5 model for image/text combos
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    // 4. Use the stable production endpoint for Gemini Pro Vision
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${apiKey}`;
 
     const response = await fetch(apiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: prompt },
-            { inline_data: { mime_type: mimeType, data: base64Data } }
-          ]
-        }]
+        contents: [
+          {
+            parts: [
+              { text: prompt },
+              { inline_data: { mime_type: mimeType, data: base64Data } },
+            ],
+          },
+        ],
+        // Removed generationConfig to ensure broadest compatibility
       }),
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      // If you see 404 here, it's a Google/Region issue. We catch it and explain.
-      if (response.status === 404) {
-        throw new Error("Google Gemini Flash 1.5 is currently unavailable in your account's region. Try creating a new API key in Google AI Studio.");
-      }
-      throw new Error(`Gemini Error ${response.status}: ${errorText}`);
+      const errorBody = await response.text();
+      throw new Error(`Gemini API Error (${response.status}): ${errorBody}`);
     }
 
     const resJson = await response.json();
     const aiText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    if (!aiText) throw new Error("AI returned no text. Try a clearer photo.");
+    if (!aiText) {
+      throw new Error("AI returned no text. Ensure the image is clear and contains text.");
+    }
 
-    // 4. Manual JSON recovery (The most "coding" part)
-    // AI often wraps JSON in ```json blocks or adds text before/after.
-    // This logic finds the actual JSON block and extracts it.
+    // 5. Manually extract JSON from the response
     let parsed: any;
     try {
+      // Find the JSON block, stripping any surrounding markdown or text
       const startJson = aiText.indexOf("{");
       const endJson = aiText.lastIndexOf("}") + 1;
       const jsonString = aiText.substring(startJson, endJson);
       parsed = JSON.parse(jsonString);
     } catch (e) {
-      console.error("AI Response was:", aiText);
-      throw new Error("AI response was not formatted correctly. Please try again.");
+      console.error("AI Output:", aiText);
+      throw new Error("Could not parse AI response. Try again.");
     }
 
-    // 5. Mapping and Validation
+    // 6. Validate and return data
     const validIds = new Set(catalog.map((c) => c.id));
     return {
       vendor: parsed.vendor ?? null,
