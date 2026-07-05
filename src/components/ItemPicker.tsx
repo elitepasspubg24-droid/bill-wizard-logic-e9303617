@@ -1,4 +1,3 @@
---- START OF FILE bill-wizard-logic-e9303617-main/src/components/ItemPicker.tsx ---
 import { useMemo, useState } from "react";
 import { Check, ChevronsUpDown, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
