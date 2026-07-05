@@ -14,6 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_settings: {
+        Row: {
+          id: string
+          updated_at: string
+          w_enabled: boolean
+        }
+        Insert: {
+          id?: string
+          updated_at?: string
+          w_enabled?: boolean
+        }
+        Update: {
+          id?: string
+          updated_at?: string
+          w_enabled?: boolean
+        }
+        Relationships: []
+      }
       bill_items: {
         Row: {
           bill_id: string
@@ -101,6 +119,8 @@ export type Database = {
           party_adder: number
           position: number
           updated_at: string
+          w: string | null
+          w_adder: string
         }
         Insert: {
           adder?: number
@@ -110,6 +130,8 @@ export type Database = {
           party_adder?: number
           position?: number
           updated_at?: string
+          w?: string | null
+          w_adder?: string
         }
         Update: {
           adder?: number
@@ -119,6 +141,8 @@ export type Database = {
           party_adder?: number
           position?: number
           updated_at?: string
+          w?: string | null
+          w_adder?: string
         }
         Relationships: []
       }
@@ -158,6 +182,7 @@ export type Database = {
           id: string
           last_purchase_rate: number | null
           name: string
+          percentage_adder: number | null
           position: number
           section_id: string
         }
@@ -167,6 +192,7 @@ export type Database = {
           id?: string
           last_purchase_rate?: number | null
           name: string
+          percentage_adder?: number | null
           position?: number
           section_id: string
         }
@@ -176,6 +202,7 @@ export type Database = {
           id?: string
           last_purchase_rate?: number | null
           name?: string
+          percentage_adder?: number | null
           position?: number
           section_id?: string
         }
@@ -411,7 +438,24 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      purchase_history: {
+        Row: {
+          created_at: string | null
+          item_id: string | null
+          purchase_date: string | null
+          rate: number | null
+          vendor_name: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bill_items_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       [_ in never]: never
