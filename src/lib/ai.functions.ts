@@ -25,85 +25,62 @@ export const extractBillFromImage = createServerFn({ method: "POST" })
     }) => data,
   )
   .handler(async ({ data }): Promise<ExtractedBill> => {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY is missing. Please add it to Lovable Secrets.");
-    }
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) throw new Error("Add GROQ_API_KEY to Lovable Secrets.");
 
-    // 1. Prepare Image/PDF data for the API
-    const parts = data.dataUrl.split(",");
-    const base64Data = parts[1];
-    const mimeType = parts[0].split(";")[0].split(":")[1];
-
-    // 2. Format Catalog for AI matching
     const catalog = (data.catalog ?? []).slice(0, 600);
     const catalogText = catalog.length
       ? catalog.map((c) => `${c.id} | ${c.name}${c.section ? ` [${c.section}]` : ""}`).join("\n")
       : "(no catalog provided)";
 
-    // 3. Construct the prompt for the AI
-    const prompt = `You are a data extraction expert for Indian steel trading bills.
-Extract the following details into a single JSON object ONLY. No markdown, no extra text.
+    const prompt = `Extract data from this Indian steel trading bill. 
+Return ONLY a JSON object. No conversational text.
 
-FIELDS:
-- vendor: Name of the shop/party at the top (string or null)
-- bill_no: Invoice number (string or null)
-- bill_date: Date in YYYY-MM-DD format (Convert from DD/MM/YYYY or DD-MM-YY)
-- items: Array of objects: { "raw_name": string, "qty": number, "rate": number, "matched_item_id": string or null }
+Structure:
+{
+  "vendor": "shop name",
+  "bill_no": "number",
+  "bill_date": "YYYY-MM-DD",
+  "items": [{ "raw_name": "size/name", "qty": 0.350, "rate": 0, "matched_item_id": "id" }]
+}
 
 RULES:
-1. QTY: Metric Tonnes (e.g., 0.350). Keep decimals EXACTLY as written. IGNORE TOTALS/SUMS.
-2. RATE: Use the rate written on the line. If none, use 0.
-3. MATCHED_ITEM_ID: Match each item's raw_name to the CATALOG ID. Use null if no good match.
-
-CATALOG:
+- qty: Use Metric Tonnes (e.g. 0.450). Skip sums/totals.
+- matched_item_id: Select ID from this CATALOG:
 ${catalogText}`;
 
-    // 4. Use the stable production endpoint for Gemini Pro Vision
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent?key=${apiKey}`;
-
-    const response = await fetch(apiUrl, {
+    // Use Groq's Vision model (Extremely fast and reliable)
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
-        contents: [
+        model: "llama-3.2-11b-vision-preview",
+        messages: [
           {
-            parts: [
-              { text: prompt },
-              { inline_data: { mime_type: mimeType, data: base64Data } },
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: { url: data.dataUrl } },
             ],
           },
         ],
-        // Removed generationConfig to ensure broadest compatibility
+        response_format: { type: "json_object" },
+        temperature: 0,
       }),
     });
 
     if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`Gemini API Error (${response.status}): ${errorBody}`);
+      const err = await response.text();
+      throw new Error(`Groq API Error: ${response.status} - ${err}`);
     }
 
     const resJson = await response.json();
-    const aiText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
+    const content = resJson.choices[0]?.message?.content;
+    const parsed = JSON.parse(content);
 
-    if (!aiText) {
-      throw new Error("AI returned no text. Ensure the image is clear and contains text.");
-    }
-
-    // 5. Manually extract JSON from the response
-    let parsed: any;
-    try {
-      // Find the JSON block, stripping any surrounding markdown or text
-      const startJson = aiText.indexOf("{");
-      const endJson = aiText.lastIndexOf("}") + 1;
-      const jsonString = aiText.substring(startJson, endJson);
-      parsed = JSON.parse(jsonString);
-    } catch (e) {
-      console.error("AI Output:", aiText);
-      throw new Error("Could not parse AI response. Try again.");
-    }
-
-    // 6. Validate and return data
     const validIds = new Set(catalog.map((c) => c.id));
     return {
       vendor: parsed.vendor ?? null,
