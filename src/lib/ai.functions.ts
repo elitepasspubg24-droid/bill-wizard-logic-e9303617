@@ -25,44 +25,45 @@ export const extractBillFromImage = createServerFn({ method: "POST" })
     }) => data,
   )
   .handler(async ({ data }): Promise<ExtractedBill> => {
-    // 1. Setup API Key from Lovable Secrets
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      throw new Error("GEMINI_API_KEY is missing in Lovable Secrets. Please add it in Settings.");
+      throw new Error("GEMINI_API_KEY is missing. Please add it to Lovable Secrets.");
     }
 
-    // 2. Format Image/PDF data
+    // 1. Prepare data
     const parts = data.dataUrl.split(",");
     const base64Data = parts[1];
     const mimeType = parts[0].split(";")[0].split(":")[1];
 
-    // 3. Prepare Product Catalog for AI matching
     const catalog = (data.catalog ?? []).slice(0, 600);
     const catalogText = catalog.length
       ? catalog.map((c) => `${c.id} | ${c.name}${c.section ? ` [${c.section}]` : ""}`).join("\n")
       : "(no catalog provided)";
 
-    // 4. Create Instructions
-    const prompt = `You are an expert at reading Indian steel/iron trading bills and handwritten sale slips.
-Extract the data from this ${data.type} document into a structured JSON format.
+    // 2. Put ALL instructions into a single text part (Most compatible way)
+    const prompt = `You are a data extraction tool. Extract data from this ${data.type} bill image.
+Return ONLY a valid JSON object. No other text.
 
-FIELDS:
-- vendor: Name of the shop/party at the top (string or null)
-- bill_no: Invoice or slip number (string or null)
-- bill_date: Date in YYYY-MM-DD format (Convert from DD/MM/YYYY or DD-MM-YY)
-- items: Array of objects with {raw_name, qty, rate, matched_item_id}
+JSON Structure:
+{
+  "vendor": "name or null",
+  "bill_no": "number or null",
+  "bill_date": "YYYY-MM-DD",
+  "items": [
+    { "raw_name": "item description", "qty": 0.000, "rate": 0, "matched_item_id": "id or null" }
+  ]
+}
 
-RULES:
-1. QTY: In handwritten slips, weight is usually in METRIC TONNES (e.g., 0.350, 1.250). Keep the decimal exactly as written. IGNORE lines that are just totals/sums of previous lines.
-2. RATE: Only include if explicitly written. On sale slips, if no rate is mentioned, set to 0.
-3. MATCHED_ITEM_ID: Match each row to the provided CATALOG below. Choose the ID that best fits the size/weight. Use null if unsure.
-4. RESPONSE: Return ONLY the JSON object. No conversation.
+CRITICAL RULES:
+- qty: Keep decimals exactly (e.g. 0.350). Do not include total sums.
+- matched_item_id: Match against the CATALOG below.
+- RESPONSE: Output ONLY the JSON block starting with { and ending with }.
 
 CATALOG:
 ${catalogText}`;
 
-    // 5. Direct Call to Gemini API (v1beta for best JSON support)
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    // 3. Call the most stable Production URL
+    const apiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
     const response = await fetch(apiUrl, {
       method: "POST",
@@ -76,45 +77,40 @@ ${catalogText}`;
             ],
           },
         ],
-        generationConfig: {
-          response_mime_type: "application/json",
-          temperature: 0.1,
-        },
+        // Removed generationConfig to avoid "Unknown name" errors
       }),
     });
 
     if (!response.ok) {
-      const errorData = await response.text();
-      throw new Error(`Gemini API Error (${response.status}): ${errorData}`);
+      const errorBody = await response.text();
+      throw new Error(`Gemini API Error: ${response.status} - ${errorBody}`);
     }
 
-    const result = await response.json();
-    const aiText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+    const resJson = await response.json();
+    const aiText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    if (!aiText) {
-      throw new Error("AI could not read any text. Ensure the photo is clear and well-lit.");
-    }
+    if (!aiText) throw new Error("AI returned no text. Check image quality.");
 
-    // 6. Clean and Parse JSON
+    // 4. Manually extract JSON from the response text
     let parsed: any;
     try {
-      // Remove any accidental markdown formatting if present
-      const cleanJson = aiText.replace(/```json|```/g, "").trim();
-      parsed = JSON.parse(cleanJson);
+      // Find the first { and last } to strip away any conversational text the AI might have added
+      const start = aiText.indexOf("{");
+      const end = aiText.lastIndexOf("}") + 1;
+      const jsonString = aiText.substring(start, end);
+      parsed = JSON.parse(jsonString);
     } catch (e) {
-      console.error("Raw AI Output:", aiText);
-      throw new Error("Failed to process bill data. Please try uploading again.");
+      console.error("AI Output failed to parse:", aiText);
+      throw new Error("The AI response was not in a valid format. Please try again.");
     }
 
-    // 7. Map items back to valid catalog IDs
+    // 5. Final validation
     const validIds = new Set(catalog.map((c) => c.id));
-    const items = Array.isArray(parsed.items) ? parsed.items : [];
-
     return {
       vendor: parsed.vendor ?? null,
       bill_no: parsed.bill_no ?? null,
       bill_date: parsed.bill_date ?? null,
-      items: items.map((it: any) => ({
+      items: (parsed.items || []).map((it: any) => ({
         raw_name: String(it.raw_name ?? ""),
         qty: Number(it.qty) || 0,
         rate: Number(it.rate) || 0,
