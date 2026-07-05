@@ -15,6 +15,7 @@ const tabs = [
   { to: "/items", label: "Items" },
   { to: "/bills", label: "Bills" },
   { to: "/saudas", label: "Saudas" },
+  { to: "/analysis", label: "Analysis" }, // Add this line
 ];
 
 function AppLayout() {
