@@ -1,3 +1,4 @@
+--- START OF FILE bill-wizard-logic-e9303617-main/src/components/ItemPicker.tsx ---
 import { useMemo, useState } from "react";
 import { Check, ChevronsUpDown, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -12,7 +13,7 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
-type ItemLike = { id: string; name: string; section_id?: string | null };
+type ItemLike = { id: string; name: string; section_id?: string | null; available_qty?: number };
 type SectionLike = { id: string; name: string };
 
 export function ItemPicker({
@@ -60,7 +61,7 @@ export function ItemPicker({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[320px] p-0" align="start">
+      <PopoverContent className="w-[350px] p-0" align="start">
         <Command>
           <div className="flex items-center border-b px-3">
             <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
@@ -89,11 +90,22 @@ export function ItemPicker({
                       onChange(it.id);
                       setOpen(false);
                     }}
+                    className="flex items-center justify-between"
                   >
-                    <Check
-                      className={cn("mr-2 h-4 w-4", value === it.id ? "opacity-100" : "opacity-0")}
-                    />
-                    <span className="truncate">{label}</span>
+                    <div className="flex items-center flex-1 min-w-0 mr-2">
+                      <Check
+                        className={cn("mr-2 h-4 w-4 shrink-0", value === it.id ? "opacity-100" : "opacity-0")}
+                      />
+                      <span className="truncate">{label}</span>
+                    </div>
+                    {it.available_qty !== undefined && (
+                      <span className={cn(
+                        "text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-sm shrink-0 whitespace-nowrap",
+                        it.available_qty <= 0 ? "bg-red-50 text-red-600" : "bg-muted text-muted-foreground"
+                      )}>
+                        {Number(it.available_qty).toFixed(1)}t
+                      </span>
+                    )}
                   </CommandItem>
                 );
               })}
