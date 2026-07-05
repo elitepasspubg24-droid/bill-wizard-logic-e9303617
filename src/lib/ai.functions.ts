@@ -25,102 +25,86 @@ export const extractBillFromImage = createServerFn({ method: "POST" })
     }) => data,
   )
   .handler(async ({ data }): Promise<ExtractedBill> => {
-    const apiKey = process.env.LOVABLE_API_KEY;
-    if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
+    // 1. Use your own Direct API Key
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error("Please add GEMINI_API_KEY to Lovable Secrets");
 
-    const isPdf = data.dataUrl.startsWith("data:application/pdf");
+    // 2. Prepare the Image Data
+    // dataUrl looks like: "data:image/jpeg;base64,/9j/4AAQ..."
+    const parts = data.dataUrl.split(",");
+    const mimeType = parts[0].split(";")[0].split(":")[1];
+    const base64Data = parts[1];
 
-    // Cap catalog size to keep prompt small; the AI only needs enough to match.
     const catalog = (data.catalog ?? []).slice(0, 600);
     const catalogText = catalog.length
-      ? catalog
-          .map(
-            (c) =>
-              `${c.id} | ${c.name}${c.section ? ` [${c.section}]` : ""}`,
-          )
-          .join("\n")
+      ? catalog.map((c) => `${c.id} | ${c.name}${c.section ? ` [${c.section}]` : ""}`).join("\n")
       : "(no catalog provided)";
 
-    const systemPrompt = `You extract structured data from Indian steel/iron trading bills. These are often HANDWRITTEN sale slips on a small pad, or printed purchase invoices. Reply with a single JSON object only. No markdown, no commentary.
+    const systemPrompt = `You extract structured data from Indian steel trading bills.
+Reply with a single JSON object ONLY. No markdown, no commentary.
 
-FIELDS
-- vendor: party/shop name at top of the slip (string|null)
-- bill_no: bill number if visible (string|null)
-- bill_date: YYYY-MM-DD. Indian slips use DD/MM/YYYY or DD|MM|YYYY — convert.
+FIELDS:
+- vendor: shop name at top (string|null)
+- bill_no: (string|null)
+- bill_date: YYYY-MM-DD
 - items: array of {raw_name, qty, rate, matched_item_id}
 
-RULES FOR ITEMS
-1. Read every line in the items section. Do not skip lines.
-2. raw_name = the full item description as written, cleaned up (e.g. "C 90x45 (S.L)", "38x38x11kg", "2x1x15kg", "25 OD x 1.00mm", "HR PLATE 4x8 6mm"). Preserve size, thickness/gauge, and weight-per-piece written in brackets or after the size.
-3. qty is the NUMBER written on the right side of that line. In handwritten sale slips this is almost always in METRIC TONNES written as a decimal like 0.360, 0.220, 0.230 — keep it exactly as written (0.360, not 360). Do NOT include a totals/sum row (a line like "0.810" that is the sum of the rows above — usually with a bracket/curly brace joining them — is the total, skip it).
-4. rate: per-unit rate if written on the line. Handwritten sale slips usually DO NOT have per-item rates — set rate to 0 in that case. Do not invent a rate.
-5. Ignore signatures, phone numbers, vehicle numbers (like "MH40 / N3418"), stamps, and page numbers.
-
-STEEL NOTATION HINTS
-- "C 90x45" = Channel 90x45
-- "L 50x50x5" = Angle 50x50x5mm
-- "38x38x11kg" or "38x38 (11kg)" = 38x38 SQUARE pipe, 11 kg per piece
-- "2x1x15kg" = 2"x1" RECTANGULAR pipe, 15 kg per piece
-- "25 OD x 1.00mm" = 25 OD round pipe, 1.00 mm thickness
-- "(S.L)" / "(sl)" = Standard Length — keep it in raw_name
-
-ITEM MATCHING
-You are given a CATALOG of known items (id | name [section]). For each extracted line, set matched_item_id to the catalog id that best matches raw_name based on size, thickness, gauge, and weight-per-piece. Prefer exact size + weight matches. If no confident match, set matched_item_id to null.
+RULES:
+1. raw_name: Full description (e.g. "C 90x45 (S.L)").
+2. qty: Almost always in Metric Tonnes (e.g. 0.360). Skip rows that are just totals.
+3. rate: Set to 0 if not written.
+4. matched_item_id: Match to the CATALOG below. Use the ID.
 
 CATALOG:
 ${catalogText}`;
 
-    const userContent: any[] = [
+    // 3. Call Google Gemini 2.0 Flash Directly
+    // This model is extremely fast, accurate for handwriting, and FREE.
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       {
-        type: "text",
-        text: `Extract this ${data.type} bill. Follow the rules exactly. Return JSON: {"vendor":..., "bill_no":..., "bill_date":..., "items":[{"raw_name":..., "qty":..., "rate":..., "matched_item_id":...}]}`,
-      },
-    ];
-    if (isPdf) {
-      userContent.push({
-        type: "file",
-        file: { filename: "bill.pdf", file_data: data.dataUrl },
-      });
-    } else {
-      userContent.push({ type: "image_url", image_url: { url: data.dataUrl } });
-    }
-
-    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userContent },
-        ],
-        response_format: { type: "json_object" },
-      }),
-    });
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: systemPrompt },
+                { inline_data: { mime_type: mimeType, data: base64Data } },
+              ],
+            },
+          ],
+          generationConfig: {
+            response_mime_type: "application/json",
+          },
+        }),
+      }
+    );
 
     if (!res.ok) {
-      const txt = await res.text();
-      throw new Error(`AI extract failed: ${res.status} ${txt.slice(0, 200)}`);
-    }
-    const json = await res.json();
-    const raw = json.choices?.[0]?.message?.content ?? "{}";
-    let parsed: ExtractedBill;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      throw new Error("AI returned non-JSON: " + raw.slice(0, 200));
+      const errorText = await res.text();
+      throw new Error(`Gemini API Error: ${res.status} - ${errorText}`);
     }
 
+    const responseData = await res.json();
+    const rawContent = responseData.candidates?.[0]?.content?.parts?.[0]?.text;
+    
+    if (!rawContent) throw new Error("AI failed to return content");
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(rawContent);
+    } catch (e) {
+      throw new Error("Failed to parse AI JSON response");
+    }
+
+    // 4. Validate and Return
     const validIds = new Set(catalog.map((c) => c.id));
-    const items = Array.isArray(parsed.items) ? parsed.items : [];
     return {
       vendor: parsed.vendor ?? null,
       bill_no: parsed.bill_no ?? null,
       bill_date: parsed.bill_date ?? null,
-      items: items.map((it) => ({
+      items: (parsed.items || []).map((it: any) => ({
         raw_name: String(it.raw_name ?? ""),
         qty: Number(it.qty) || 0,
         rate: Number(it.rate) || 0,
