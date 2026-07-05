@@ -124,8 +124,18 @@ function AppLayout() {
               );
             })}
             <button
+              onClick={syncSheets}
+              disabled={syncing}
+              className="ml-1 px-2 py-1.5 rounded-md text-sm text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50 inline-flex items-center gap-1"
+              aria-label="Sync to Google Sheets"
+              title="Sync to Google Sheets"
+            >
+              <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
+              <span className="hidden md:inline">Sync</span>
+            </button>
+            <button
               onClick={signOut}
-              className="hidden sm:inline-flex ml-1 px-2 py-1.5 rounded-md text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="hidden sm:inline-flex px-2 py-1.5 rounded-md text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
               aria-label="Sign out"
               title="Sign out"
             >
