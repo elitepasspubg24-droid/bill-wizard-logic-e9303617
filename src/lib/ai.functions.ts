@@ -33,23 +33,28 @@ export const extractBillFromImage = createServerFn({ method: "POST" })
       ? catalog.map((c) => `${c.id} | ${c.name}${c.section ? ` [${c.section}]` : ""}`).join("\n")
       : "(no catalog provided)";
 
-    const prompt = `Extract data from this Indian steel trading bill. 
-Return ONLY a JSON object. No conversational text.
+    const prompt = `You are a data extraction bot for Indian steel trading.
+Extract details from this ${data.type} document into valid JSON.
 
-Structure:
+JSON Structure:
 {
-  "vendor": "shop name",
-  "bill_no": "number",
+  "vendor": "shop name or null",
+  "bill_no": "invoice number or null",
   "bill_date": "YYYY-MM-DD",
-  "items": [{ "raw_name": "size/name", "qty": 0.350, "rate": 0, "matched_item_id": "id" }]
+  "items": [
+    { "raw_name": "description", "qty": 0.350, "rate": 0, "matched_item_id": "id or null" }
+  ]
 }
 
-RULES:
-- qty: Use Metric Tonnes (e.g. 0.450). Skip sums/totals.
-- matched_item_id: Select ID from this CATALOG:
+CRITICAL RULES:
+1. QTY: Handwritten slips use Metric Tonnes (e.g. 0.350, 1.220). KEEP decimals. IGNORE totals.
+2. MATCHED_ITEM_ID: Pick the best ID from the CATALOG below.
+3. Response must be ONLY valid JSON.
+
+CATALOG:
 ${catalogText}`;
 
-    // Use Groq's Vision model (Extremely fast and reliable)
+    // Use the NEW stable model name: llama-3.2-11b-vision-instant
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -57,7 +62,7 @@ ${catalogText}`;
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "llama-3.2-11b-vision-preview",
+        model: "llama-3.2-11b-vision-instant",
         messages: [
           {
             role: "user",
@@ -79,9 +84,12 @@ ${catalogText}`;
 
     const resJson = await response.json();
     const content = resJson.choices[0]?.message?.content;
+    
+    if (!content) throw new Error("AI returned no content.");
+    
     const parsed = JSON.parse(content);
-
     const validIds = new Set(catalog.map((c) => c.id));
+
     return {
       vendor: parsed.vendor ?? null,
       bill_no: parsed.bill_no ?? null,
