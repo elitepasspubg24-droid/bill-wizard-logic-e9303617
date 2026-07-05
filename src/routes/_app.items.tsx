@@ -1,3 +1,4 @@
+--- START OF FILE bill-wizard-logic-e9303617-main/src/routes/_app.items.tsx ---
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, useRef } from "react";
@@ -28,8 +29,10 @@ import {
   Download, 
   ReceiptText, 
   Image as ImageIcon,
-  History 
+  History,
+  ArrowLeftRight 
 } from "lucide-react";
+// ... (rest of imports remain same)
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -98,12 +101,11 @@ function ItemsPage() {
   const [partyName, setPartyName] = useState("");
   const cartRef = useRef<HTMLDivElement>(null);
 
-  // --- CRUD Modal UI States ---
+  // --- DIALOG STATES ---
   const [isSectionDialogOpen, setIsSectionDialogOpen] = useState(false);
   const [isItemDialogOpen, setIsItemDialogOpen] = useState(false);
-  
-  // --- LAST PURCHASE HISTORY STATE ---
   const [historyItem, setHistoryItem] = useState<any | null>(null);
+  const [ledgerItem, setLedgerItem] = useState<any | null>(null);
 
   const [sectionForm, setSectionForm] = useState({ id: "", name: "", factory_id: "" });
   const [itemForm, setItemForm] = useState({
@@ -115,31 +117,47 @@ function ItemsPage() {
     last_purchase_rate: "",
   });
 
-  // Fetch last 3 purchases for the selected item
+  // Fetch last 3 purchases
   const itemHistory = useQuery({
     queryKey: ["item_history", historyItem?.id],
     queryFn: async () => {
       if (!historyItem?.id) return [];
-      
       const { data, error } = await supabase
         .from("purchase_history")
         .select("vendor_name, purchase_date, rate")
         .eq("item_id", historyItem.id)
         .order("purchase_date", { ascending: false })
         .limit(3);
-
-      // Fallback demo data if the table doesn't exist yet so you can preview the modal
-      if (error || !data || data.length === 0) {
-        const baseRate = historyItem.last_purchase_rate || 42500;
-        return [
-          { vendor_name: "Mahalaxmi Ispat Pvt Ltd", purchase_date: "2026-06-28", rate: baseRate },
-          { vendor_name: "Tata Steel Traders", purchase_date: "2026-06-15", rate: baseRate - 250 },
-          { vendor_name: "Shree Ram Metals", purchase_date: "2026-05-30", rate: baseRate - 400 },
-        ];
-      }
-      return data;
+      return data || [];
     },
     enabled: !!historyItem,
+  });
+
+  // NEW: Fetch last 10 activities (ledger)
+  const itemLedger = useQuery({
+    queryKey: ["item_ledger", ledgerItem?.id],
+    queryFn: async () => {
+      if (!ledgerItem?.id) return [];
+      const { data, error } = await supabase
+        .from("bill_items")
+        .select(`
+          qty,
+          bills!inner (
+            bill_date,
+            vendor,
+            type,
+            created_at
+          )
+        `)
+        .eq("item_id", ledgerItem.id)
+        .order("bill_date", { referencedTable: 'bills', ascending: false })
+        .order("created_at", { referencedTable: 'bills', ascending: false })
+        .limit(10);
+      
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!ledgerItem,
   });
 
   const allOpenSaudas = useMemo(() => {
@@ -624,7 +642,7 @@ function ItemsPage() {
                         checked={pdfCols.includes(c.key)}
                         onCheckedChange={(v) =>
                           setPdfCols((prev) =>
-                            v ? [...prev, c.key] : prev.filter((k) => k !== c.key),
+                            v ? [...prev, c.key] : prev.filter((k) => k !== k),
                           )
                         }
                       />
@@ -748,7 +766,14 @@ function ItemsPage() {
                       <td className="py-2 px-1 text-right font-mono font-bold text-primary bg-primary/[0.01] whitespace-nowrap">{r.today.toFixed(0)}</td>
                       <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
                       <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.party.toFixed(0)}</td>
-                      <td className="py-2 px-1 text-right font-mono font-semibold text-foreground whitespace-nowrap">{Number(r.available_qty).toFixed(1)}t</td>
+                      <td className="py-2 px-1 text-right font-mono font-semibold text-foreground whitespace-nowrap">
+                        <button
+                          onClick={() => setLedgerItem(r)}
+                          className="text-foreground underline underline-offset-2 decoration-muted-foreground/30 hover:text-primary transition-colors focus:outline-hidden"
+                        >
+                          {Number(r.available_qty).toFixed(1)}t
+                        </button>
+                      </td>
                       <td className="py-2 px-1 text-right pr-2 font-mono text-muted-foreground whitespace-nowrap">
                         <button
                           onClick={() => setHistoryItem(r)}
@@ -872,7 +897,14 @@ function ItemsPage() {
                       <div className="w-[13%] text-right font-mono font-bold text-primary">{r.today.toFixed(0)}</div>
                       <div className="w-[13%] text-right font-mono text-slate-700">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</div>
                       <div className="w-[13%] text-right font-mono text-slate-700">{r.party.toFixed(0)}</div>
-                      <div className="w-[13%] text-right text-slate-900 font-medium">{Number(r.available_qty).toFixed(2)} MT</div>
+                      <div className="w-[13%] text-right text-slate-900 font-medium">
+                        <button
+                          onClick={() => setLedgerItem(r)}
+                          className="hover:text-primary underline decoration-muted-foreground/20 underline-offset-4 cursor-pointer transition-colors focus:outline-hidden"
+                        >
+                          {Number(r.available_qty).toFixed(2)} MT
+                        </button>
+                      </div>
                       <div className="w-[14%] text-right font-mono pr-1">
                         <button
                           onClick={() => setHistoryItem(r)}
@@ -1012,6 +1044,59 @@ function ItemsPage() {
 
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setHistoryItem(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* --- NEW: ITEM ACTIVITY LEDGER (LAST 10) --- */}
+      <Dialog open={!!ledgerItem} onOpenChange={(open) => !open && setLedgerItem(null)}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowLeftRight className="h-5 w-5 text-primary" /> Stock Activity (Last 10)
+            </DialogTitle>
+            <DialogDescription>
+              Detailed flow for <strong className="text-foreground">{ledgerItem?.name}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-2">
+            {itemLedger.isLoading ? (
+              <div className="text-center py-8 text-sm text-muted-foreground">Loading history...</div>
+            ) : !itemLedger.data || itemLedger.data.length === 0 ? (
+              <div className="text-center py-8 text-sm text-muted-foreground italic border rounded-lg">No activity recorded via bills.</div>
+            ) : (
+              <div className="border rounded-md overflow-hidden divide-y">
+                <div className="grid grid-cols-12 bg-muted/60 p-2.5 text-[10px] uppercase font-bold tracking-wider text-muted-foreground">
+                  <div className="col-span-3">Date</div>
+                  <div className="col-span-5">Party / Vendor</div>
+                  <div className="col-span-4 text-right">Quantity</div>
+                </div>
+                {itemLedger.data.map((entry: any, idx: number) => {
+                  const bill = entry.bills;
+                  const isPurchase = bill.type === "purchase";
+                  return (
+                    <div key={idx} className="grid grid-cols-12 p-2.5 text-xs items-center hover:bg-muted/10 transition-colors">
+                      <div className="col-span-3 text-muted-foreground font-medium">
+                        {bill.bill_date ? new Date(bill.bill_date).toLocaleDateString("en-IN", { day: '2-digit', month: 'short' }) : "—"}
+                      </div>
+                      <div className="col-span-5 font-semibold truncate pr-2 text-slate-800" title={bill.vendor}>
+                        {bill.vendor || "Direct Entry"}
+                      </div>
+                      <div className="col-span-4 text-right">
+                        <span className={`font-mono font-bold px-1.5 py-0.5 rounded-sm ${isPurchase ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>
+                          {isPurchase ? "+" : "-"}{Number(entry.qty).toFixed(2)} MT
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setLedgerItem(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
