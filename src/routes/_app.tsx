@@ -53,6 +53,36 @@ function AppLayout() {
     navigate({ to: "/auth", replace: true });
   };
 
+  const [syncing, setSyncing] = useState(false);
+  const syncSheets = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    const tid = toast.loading("Syncing to Google Sheets…");
+    try {
+      const res = await fetch("/api/public/hooks/sync-sheets", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+        body: "{}",
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      toast.success("Synced!", {
+        id: tid,
+        description: "Open your Google Sheet",
+        action: json.spreadsheetUrl
+          ? { label: "Open", onClick: () => window.open(json.spreadsheetUrl, "_blank") }
+          : undefined,
+      });
+    } catch (e: any) {
+      toast.error("Sync failed", { id: tid, description: e.message });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   if (!checked || !signedIn) {
     return (
       <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">
