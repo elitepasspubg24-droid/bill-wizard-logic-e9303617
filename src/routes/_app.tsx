@@ -1,8 +1,9 @@
 import { createFileRoute, Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Toaster } from "@/components/ui/sonner";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { LogOut } from "lucide-react";
+import { LogOut, RefreshCw } from "lucide-react";
 
 export const Route = createFileRoute("/_app")({
   component: AppLayout,
@@ -52,6 +53,36 @@ function AppLayout() {
     navigate({ to: "/auth", replace: true });
   };
 
+  const [syncing, setSyncing] = useState(false);
+  const syncSheets = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    const tid = toast.loading("Syncing to Google Sheets…");
+    try {
+      const res = await fetch("/api/public/hooks/sync-sheets", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+        body: "{}",
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      toast.success("Synced!", {
+        id: tid,
+        description: "Open your Google Sheet",
+        action: json.spreadsheetUrl
+          ? { label: "Open", onClick: () => window.open(json.spreadsheetUrl, "_blank") }
+          : undefined,
+      });
+    } catch (e: any) {
+      toast.error("Sync failed", { id: tid, description: e.message });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   if (!checked || !signedIn) {
     return (
       <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">
@@ -93,8 +124,18 @@ function AppLayout() {
               );
             })}
             <button
+              onClick={syncSheets}
+              disabled={syncing}
+              className="ml-1 px-2 py-1.5 rounded-md text-sm text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50 inline-flex items-center gap-1"
+              aria-label="Sync to Google Sheets"
+              title="Sync to Google Sheets"
+            >
+              <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
+              <span className="hidden md:inline">Sync</span>
+            </button>
+            <button
               onClick={signOut}
-              className="hidden sm:inline-flex ml-1 px-2 py-1.5 rounded-md text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="hidden sm:inline-flex px-2 py-1.5 rounded-md text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
               aria-label="Sign out"
               title="Sign out"
             >
