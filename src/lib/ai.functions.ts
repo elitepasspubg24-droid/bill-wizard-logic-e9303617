@@ -17,37 +17,35 @@ export type ExtractedBill = {
 export type CatalogItem = { id: string; name: string; section?: string | null };
 
 /**
- * DIMENSION-FIRST MATCHING ENGINE
- * AI is bad at matching IDs. This code is 100% logical. 
- * It matches steel sizes (38x38, 90x45) with mathematical precision.
+ * LOGIC-BASED MATCHING ENGINE (Anti-Rubbish)
+ * Matches steel dimensions (e.g. 38x38, 90x45) mathematically.
  */
-function dimensionMatcher(raw: string, catalog: CatalogItem[]): string | null {
-  if (!raw || catalog.length === 0) return null;
+function findPerfectSteelMatch(rawRead: string, catalog: CatalogItem[]): string | null {
+  if (!rawRead || catalog.length === 0) return null;
 
-  const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9.]/g, " ").replace(/\s+/g, " ").trim();
-  const rawClean = clean(raw);
-  // Extract numbers (dimensions) from the AI's reading (e.g., 38, 11, 1.2)
+  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9.]/g, " ").replace(/\s+/g, " ").trim();
+  const rawClean = normalize(rawRead);
   const rawNums = rawClean.match(/\d+(\.\d+)?/g) || [];
 
   let bestId: string | null = null;
   let maxScore = 0;
 
   for (const item of catalog) {
-    const itemName = clean(item.name);
+    const itemName = normalize(item.name);
     const itemNums = itemName.match(/\d+(\.\d+)?/g) || [];
     let score = 0;
 
-    // 1. DIMENSION SCORE: Numbers in steel are truth.
-    const matchingNums = itemNums.filter(n => rawNums.includes(n));
-    score += (matchingNums.length * 40);
+    // 1. DIMENSION WEIGHTING: If numbers like 38, 90, 1.2 match, it's likely the same item.
+    const matchedNums = itemNums.filter(n => rawNums.includes(n));
+    score += (matchedNums.length * 50); 
 
-    // 2. KEYWORD OVERLAP: (Pipe, Angle, MS, KG)
+    // 2. KEYWORD OVERLAP: (Pipe, Angle, KG, OD)
     const rawTokens = rawClean.split(" ");
     for (const token of rawTokens) {
       if (token.length > 2 && itemName.includes(token)) score += 10;
     }
 
-    // 3. EXACT MATCH BONUS
+    // 3. EXACT STRING MATCH
     if (itemName === rawClean) score += 200;
 
     if (score > maxScore) {
@@ -56,8 +54,8 @@ function dimensionMatcher(raw: string, catalog: CatalogItem[]): string | null {
     }
   }
 
-  // Only return if we have a very high confidence match
-  return maxScore >= 80 ? bestId : null;
+  // Threshold: Requires at least two numbers or one exact size to match
+  return maxScore >= 100 ? bestId : null;
 }
 
 export const extractBillFromImage = createServerFn({ method: "POST" })
@@ -66,34 +64,32 @@ export const extractBillFromImage = createServerFn({ method: "POST" })
     const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) throw new Error("Add OPENROUTER_API_KEY to Lovable Secrets.");
 
-    const prompt = `You are a high-precision OCR engine for Indian steel trading.
-Extract data from this ${data.type} bill. 
+    const prompt = `OCR INSTRUCTION: Read this Indian steel trading bill.
+Focus on identifying line items, weights, and rates.
 
 CRITICAL RULES:
-1. QTY: Extract weight in METRIC TONNES (e.g. 0.350, 1.120). 
-   - Handwriting check: ".350" is 0.350. "1 250" is 1.250.
-2. ITEMS: Capture the full description (e.g. "38x38x11kg" or "90x45 (S.L)").
-3. IGNORE: Signatures, totals, sums, and phone numbers.
-4. DATE: Convert to YYYY-MM-DD.
+- QTY: Metric Tonnes (e.g. 0.350, 1.250). Keep decimals exactly. ".450" is 0.450.
+- NAME: Extract sizes exactly as written (e.g. "38x38x11kg").
+- TOTALS: Skip the sum/total rows at the bottom.
+- OUTPUT: Valid JSON only.
 
-OUTPUT VALID JSON ONLY:
 {
   "vendor": "Shop Name",
   "bill_no": "Number",
   "bill_date": "YYYY-MM-DD",
-  "items": [{ "raw_name": "Full size/desc", "qty": 0.000, "rate": 0 }]
+  "items": [{ "raw_name": "Full string", "qty": 0.000, "rate": 0 }]
 }`;
 
-    // Using Gemini 1.5 Flash via OpenRouter (Bypasses all regional 404 blocks)
+    // google/gemini-2.0-flash-exp:free is the most reliable high-quality free model on OpenRouter
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
-        "HTTP-Referer": "https://lovable.dev", // Required by OpenRouter
+        "HTTP-Referer": "https://lovable.dev",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-flash-1.5", 
+        model: "google/gemini-2.0-flash-exp:free", 
         messages: [{
           role: "user",
           content: [
@@ -106,37 +102,38 @@ OUTPUT VALID JSON ONLY:
     });
 
     if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`OpenRouter Error: ${response.status} - ${err}`);
+      const errorText = await response.text();
+      throw new Error(`Connection Error ${response.status}: ${errorText}`);
     }
 
     const resJson = await response.json();
-    const aiText = resJson.choices[0]?.message?.content;
+    const aiOutput = resJson.choices[0]?.message?.content;
     
-    if (!aiText) throw new Error("AI failed to read image.");
+    if (!aiOutput) throw new Error("AI returned no data. Ensure image is clear.");
 
     let parsed: any;
     try {
-      parsed = JSON.parse(aiText);
+      parsed = JSON.parse(aiOutput);
     } catch (e) {
-      const start = aiText.indexOf("{");
-      const end = aiText.lastIndexOf("}") + 1;
-      parsed = JSON.parse(aiText.substring(start, end));
+      // Manual recovery if JSON mode fails
+      const start = aiOutput.indexOf("{");
+      const end = aiOutput.lastIndexOf("}") + 1;
+      parsed = JSON.parse(aiOutput.substring(start, end));
     }
 
-    // MATCHING LOGIC (The "Anti-Rubbish" Brain)
+    // APPLY MATCHING ENGINE
     const catalog = data.catalog ?? [];
-    const finalItems = (parsed.items || []).map((it: any) => ({
+    const processedItems = (parsed.items || []).map((it: any) => ({
       raw_name: String(it.raw_name),
       qty: Number(it.qty) || 0,
       rate: Number(it.rate) || 0,
-      matched_item_id: dimensionMatcher(String(it.raw_name), catalog)
+      matched_item_id: findPerfectSteelMatch(String(it.raw_name), catalog)
     }));
 
     return {
       vendor: parsed.vendor ?? null,
       bill_no: parsed.bill_no ?? null,
       bill_date: parsed.bill_date ?? null,
-      items: finalItems
+      items: processedItems
     };
   });
