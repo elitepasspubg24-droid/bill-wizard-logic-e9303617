@@ -25,55 +25,54 @@ export const extractBillFromImage = createServerFn({ method: "POST" })
     }) => data,
   )
   .handler(async ({ data }): Promise<ExtractedBill> => {
-    // 1. Get API Key from Lovable Secrets
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      throw new Error("GEMINI_API_KEY is missing. Please add it to Lovable Secrets/Environment Variables.");
+      throw new Error("GEMINI_API_KEY is missing in Lovable Secrets.");
     }
 
-    // 2. Prepare the Image/PDF data
+    // 1. Prepare data
     const parts = data.dataUrl.split(",");
-    const header = parts[0];
     const base64Data = parts[1];
-    const mimeType = header.split(";")[0].split(":")[1];
+    const mimeType = parts[0].split(";")[0].split(":")[1];
 
-    // 3. Format the Catalog for the AI
     const catalog = (data.catalog ?? []).slice(0, 600);
     const catalogText = catalog.length
-      ? catalog
-          .map((c) => `${c.id} | ${c.name}${c.section ? ` [${c.section}]` : ""}`)
-          .join("\n")
+      ? catalog.map((c) => `${c.id} | ${c.name}${c.section ? ` [${c.section}]` : ""}`).join("\n")
       : "(no catalog provided)";
 
-    const systemPrompt = `You extract structured data from Indian steel/iron trading bills (handwritten sale slips or printed invoices). 
+    // 2. Define instructions
+    const systemInstruction = `You extract structured data from Indian steel trading bills (handwritten slips or invoices).
 Reply with a single JSON object ONLY. No markdown, no commentary.
 
 FIELDS:
-- vendor: shop name at the top (string|null)
-- bill_no: invoice number (string|null)
-- bill_date: YYYY-MM-DD (Convert from Indian format DD/MM/YYYY)
+- vendor: shop name at top (string|null)
+- bill_no: (string|null)
+- bill_date: YYYY-MM-DD (Convert from DD/MM/YYYY)
 - items: array of {raw_name, qty, rate, matched_item_id}
 
-RULES FOR ITEMS:
-1. raw_name: Full item description (e.g., "C 90x45 (S.L)", "38x38x11kg").
-2. qty: Usually written on the right. In handwritten slips, this is in METRIC TONNES (e.g., 0.360, 1.250). Keep the decimal exactly. Skip total/sum rows.
-3. rate: Per-unit rate. If not written (common on sale slips), set to 0.
-4. matched_item_id: From the CATALOG provided below, pick the ID that best matches based on size and weight. If no match, set to null.
+RULES:
+1. raw_name: Full description (e.g. "C 90x45 (S.L)").
+2. qty: These are in METRIC TONNES (e.g. 0.360, 1.250). Keep the decimal exactly. SKIP rows that are just totals.
+3. rate: Per-unit rate. Set to 0 if not explicitly written.
+4. matched_item_id: Select the best ID from the CATALOG based on size/weight.
 
 CATALOG:
 ${catalogText}`;
 
-    // 4. Call Google Gemini 1.5 Flash (Stable Free Tier)
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    // 3. Call the STABLE v1 API
+    const apiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
     const response = await fetch(apiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        system_instruction: {
+          parts: [{ text: systemInstruction }]
+        },
         contents: [
           {
             parts: [
-              { text: systemPrompt },
+              { text: `Extract the details from this ${data.type} document.` },
               { inline_data: { mime_type: mimeType, data: base64Data } },
             ],
           },
@@ -87,40 +86,32 @@ ${catalogText}`;
 
     if (!response.ok) {
       const errorBody = await response.text();
-      throw new Error(`Gemini API Error (${response.status}): ${errorBody}`);
+      throw new Error(`Gemini API Error: ${response.status} - ${errorBody}`);
     }
 
     const resJson = await response.json();
     const aiText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    if (!aiText) {
-      throw new Error("AI returned an empty response. Check if the image is clear.");
-    }
+    if (!aiText) throw new Error("AI returned empty content. Ensure the photo is clear.");
 
     let parsed: any;
     try {
       parsed = JSON.parse(aiText);
     } catch (e) {
-      console.error("Raw AI Output:", aiText);
-      throw new Error("Failed to parse AI response as JSON.");
+      throw new Error("Failed to parse AI response.");
     }
 
-    // 5. Clean and Return Data
+    // 4. Return formatted data
     const validIds = new Set(catalog.map((c) => c.id));
-    const items = Array.isArray(parsed.items) ? parsed.items : [];
-
     return {
       vendor: parsed.vendor ?? null,
       bill_no: parsed.bill_no ?? null,
       bill_date: parsed.bill_date ?? null,
-      items: items.map((it: any) => ({
+      items: (parsed.items || []).map((it: any) => ({
         raw_name: String(it.raw_name ?? ""),
         qty: Number(it.qty) || 0,
         rate: Number(it.rate) || 0,
-        matched_item_id:
-          it.matched_item_id && validIds.has(it.matched_item_id)
-            ? it.matched_item_id
-            : null,
+        matched_item_id: (it.matched_item_id && validIds.has(it.matched_item_id)) ? it.matched_item_id : null,
       })),
     };
   });
