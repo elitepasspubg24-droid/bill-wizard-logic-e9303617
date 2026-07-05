@@ -16,6 +16,7 @@ import { Route as AppSaudasRouteImport } from './routes/_app.saudas'
 import { Route as AppItemsRouteImport } from './routes/_app.items'
 import { Route as AppHistoryRouteImport } from './routes/_app.history'
 import { Route as AppBillsRouteImport } from './routes/_app.bills'
+import { Route as ApiPublicHooksSyncSheetsRouteImport } from './routes/api/public/hooks/sync-sheets'
 import { Route as ApiPublicHooksCleanupSaudasRouteImport } from './routes/api/public/hooks/cleanup-saudas'
 import { Route as ApiPublicHooksCleanupBillsRouteImport } from './routes/api/public/hooks/cleanup-bills'
 
@@ -53,6 +54,12 @@ const AppBillsRoute = AppBillsRouteImport.update({
   path: '/bills',
   getParentRoute: () => AppRoute,
 } as any)
+const ApiPublicHooksSyncSheetsRoute =
+  ApiPublicHooksSyncSheetsRouteImport.update({
+    id: '/api/public/hooks/sync-sheets',
+    path: '/api/public/hooks/sync-sheets',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicHooksCleanupSaudasRoute =
   ApiPublicHooksCleanupSaudasRouteImport.update({
     id: '/api/public/hooks/cleanup-saudas',
@@ -75,6 +82,7 @@ export interface FileRoutesByFullPath {
   '/saudas': typeof AppSaudasRoute
   '/api/public/hooks/cleanup-bills': typeof ApiPublicHooksCleanupBillsRoute
   '/api/public/hooks/cleanup-saudas': typeof ApiPublicHooksCleanupSaudasRoute
+  '/api/public/hooks/sync-sheets': typeof ApiPublicHooksSyncSheetsRoute
 }
 export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
@@ -85,6 +93,7 @@ export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
   '/api/public/hooks/cleanup-bills': typeof ApiPublicHooksCleanupBillsRoute
   '/api/public/hooks/cleanup-saudas': typeof ApiPublicHooksCleanupSaudasRoute
+  '/api/public/hooks/sync-sheets': typeof ApiPublicHooksSyncSheetsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -97,6 +106,7 @@ export interface FileRoutesById {
   '/_app/': typeof AppIndexRoute
   '/api/public/hooks/cleanup-bills': typeof ApiPublicHooksCleanupBillsRoute
   '/api/public/hooks/cleanup-saudas': typeof ApiPublicHooksCleanupSaudasRoute
+  '/api/public/hooks/sync-sheets': typeof ApiPublicHooksSyncSheetsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -109,6 +119,7 @@ export interface FileRouteTypes {
     | '/saudas'
     | '/api/public/hooks/cleanup-bills'
     | '/api/public/hooks/cleanup-saudas'
+    | '/api/public/hooks/sync-sheets'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/auth'
@@ -119,6 +130,7 @@ export interface FileRouteTypes {
     | '/'
     | '/api/public/hooks/cleanup-bills'
     | '/api/public/hooks/cleanup-saudas'
+    | '/api/public/hooks/sync-sheets'
   id:
     | '__root__'
     | '/_app'
@@ -130,6 +142,7 @@ export interface FileRouteTypes {
     | '/_app/'
     | '/api/public/hooks/cleanup-bills'
     | '/api/public/hooks/cleanup-saudas'
+    | '/api/public/hooks/sync-sheets'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -137,6 +150,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ApiPublicHooksCleanupBillsRoute: typeof ApiPublicHooksCleanupBillsRoute
   ApiPublicHooksCleanupSaudasRoute: typeof ApiPublicHooksCleanupSaudasRoute
+  ApiPublicHooksSyncSheetsRoute: typeof ApiPublicHooksSyncSheetsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -190,6 +204,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppBillsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/api/public/hooks/sync-sheets': {
+      id: '/api/public/hooks/sync-sheets'
+      path: '/api/public/hooks/sync-sheets'
+      fullPath: '/api/public/hooks/sync-sheets'
+      preLoaderRoute: typeof ApiPublicHooksSyncSheetsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/hooks/cleanup-saudas': {
       id: '/api/public/hooks/cleanup-saudas'
       path: '/api/public/hooks/cleanup-saudas'
@@ -230,6 +251,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ApiPublicHooksCleanupBillsRoute: ApiPublicHooksCleanupBillsRoute,
   ApiPublicHooksCleanupSaudasRoute: ApiPublicHooksCleanupSaudasRoute,
+  ApiPublicHooksSyncSheetsRoute: ApiPublicHooksSyncSheetsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
