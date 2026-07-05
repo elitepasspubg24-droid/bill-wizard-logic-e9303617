@@ -16,14 +16,12 @@ export type ExtractedBill = {
 
 export type CatalogItem = { id: string; name: string; section?: string | null };
 
-// --- SMART MATCHING LOGIC (The "Anti-Rubbish" fix) ---
+// --- THE SMART MATCHER (Fixes the "Rubbish" matching) ---
 function findBestMatch(rawName: string, catalog: CatalogItem[]): string | null {
   if (!rawName || catalog.length === 0) return null;
   
-  const normalizedRaw = rawName.toLowerCase()
-    .replace(/[^a-z0-9]/g, " ") // Remove symbols
-    .replace(/\s+/g, " ")       // Remove extra spaces
-    .trim();
+  const cleanRaw = rawName.toLowerCase().replace(/[^a-z0-9]/g, " ");
+  const rawTokens = cleanRaw.split(" ").filter(t => t.length >= 2);
 
   let bestId: string | null = null;
   let highestScore = 0;
@@ -31,19 +29,16 @@ function findBestMatch(rawName: string, catalog: CatalogItem[]): string | null {
   for (const item of catalog) {
     const itemName = item.name.toLowerCase();
     const sectionName = (item.section ?? "").toLowerCase();
-    
     let score = 0;
-    // Split into tokens (e.g., "38", "38", "11kg")
-    const rawTokens = normalizedRaw.split(" ").filter(t => t.length > 1);
-    
+
+    // Check how many parts of the name (like "38", "38", "11kg") appear in your catalog item
     for (const token of rawTokens) {
-      // If the size or weight matches exactly, boost score significantly
-      if (itemName.includes(token)) score += token.length * 2;
+      if (itemName.includes(token)) score += 10;
       if (sectionName.includes(token)) score += 2;
     }
 
-    // Exact matches get the highest priority
-    if (itemName === normalizedRaw) score += 100;
+    // Exact string matches get a massive boost
+    if (itemName === cleanRaw.trim()) score += 100;
 
     if (score > highestScore) {
       highestScore = score;
@@ -51,8 +46,8 @@ function findBestMatch(rawName: string, catalog: CatalogItem[]): string | null {
     }
   }
 
-  // Only return if we have a decent level of confidence
-  return highestScore > 3 ? bestId : null;
+  // Only return if we have a solid match (score > 15)
+  return highestScore > 15 ? bestId : null;
 }
 
 export const extractBillFromImage = createServerFn({ method: "POST" })
@@ -64,63 +59,67 @@ export const extractBillFromImage = createServerFn({ method: "POST" })
     }) => data,
   )
   .handler(async ({ data }): Promise<ExtractedBill> => {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error("Add GEMINI_API_KEY to Lovable Secrets.");
+    const apiKey = process.env.MISTRAL_API_KEY;
+    if (!apiKey) throw new Error("Add MISTRAL_API_KEY to Lovable Secrets.");
 
-    const parts = data.dataUrl.split(",");
-    const base64Data = parts[1];
-    const mimeType = parts[0].split(";")[0].split(":")[1];
+    const prompt = `You are a professional data entry bot for an Indian steel trader.
+Read the attached bill and extract vendor name, bill number, date, and every line item.
 
-    // INSTRUCTION: Focus on high-accuracy READING.
-    const prompt = `You are a high-accuracy OCR for Indian steel bills.
-Extract every line item from this ${data.type} document. 
-
-OUTPUT ONLY JSON:
+OUTPUT JSON ONLY:
 {
-  "vendor": "Shop Name",
+  "vendor": "Name of shop/party",
   "bill_no": "Number",
   "bill_date": "YYYY-MM-DD",
   "items": [
-    { "raw_name": "Full Item Name with size/weight", "qty": 0.350, "rate": 0 }
+    { "raw_name": "Full item description with size and weight", "qty": 0.350, "rate": 0 }
   ]
 }
 
-CRITICAL:
-1. QTY: Handwritten decimals are Metric Tonnes (e.g. 0.360). IGNORE line sums/totals.
-2. RAW_NAME: Keep full details (e.g. "C 90x45 (S.L)" or "38x38x11kg").
-3. NO COMMENTARY. NO MARKDOWN.`;
+RULES:
+1. QTY: Handwritten decimals are Metric Tonnes (e.g. 0.350, 1.250). Keep the decimals!
+2. TOTALS: Do NOT include sum/total rows.
+3. DATE: Convert Indian DD/MM/YYYY to YYYY-MM-DD.`;
 
-    // Using the most globally accessible Gemini URL to avoid 404s
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-
-    const response = await fetch(apiUrl, {
+    const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
-        contents: [{
-          parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64Data } }]
-        }]
+        model: "pixtral-12b-2409",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: data.dataUrl },
+            ],
+          },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0,
       }),
     });
 
     if (!response.ok) {
       const err = await response.text();
-      throw new Error(`AI Error: ${response.status}. Check if GEMINI_API_KEY is correct.`);
+      throw new Error(`Mistral Error: ${response.status} - ${err}`);
     }
 
     const resJson = await response.json();
-    const aiText = resJson.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const aiText = resJson.choices[0]?.message?.content;
     
     let parsed: any;
     try {
+      parsed = JSON.parse(aiText);
+    } catch (e) {
+      // Logic fallback to find JSON block
       const start = aiText.indexOf("{");
       const end = aiText.lastIndexOf("}") + 1;
       parsed = JSON.parse(aiText.substring(start, end));
-    } catch (e) {
-      throw new Error("AI output was messy. Please try a clearer photo.");
     }
 
-    // --- EXECUTE SMART MATCHING ---
     const catalog = data.catalog ?? [];
     const items = (parsed.items || []).map((it: any) => {
       const rawName = String(it.raw_name || "");
@@ -128,7 +127,7 @@ CRITICAL:
         raw_name: rawName,
         qty: Number(it.qty) || 0,
         rate: Number(it.rate) || 0,
-        // We match it here using logic, much better than AI's random choice
+        // CRITICAL: Logic-based matching, much more reliable than AI
         matched_item_id: findBestMatch(rawName, catalog)
       };
     });
