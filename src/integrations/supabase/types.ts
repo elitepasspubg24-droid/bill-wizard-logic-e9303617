@@ -17,16 +17,22 @@ export type Database = {
       app_settings: {
         Row: {
           id: string
+          sheets_last_sync_at: string | null
+          sheets_spreadsheet_id: string | null
           updated_at: string
           w_enabled: boolean
         }
         Insert: {
           id?: string
+          sheets_last_sync_at?: string | null
+          sheets_spreadsheet_id?: string | null
           updated_at?: string
           w_enabled?: boolean
         }
         Update: {
           id?: string
+          sheets_last_sync_at?: string | null
+          sheets_spreadsheet_id?: string | null
           updated_at?: string
           w_enabled?: boolean
         }
