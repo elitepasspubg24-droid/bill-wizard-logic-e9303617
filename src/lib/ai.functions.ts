@@ -34,7 +34,7 @@ function findSteelMatch(rawRead: string, catalog: CatalogItem[]): string | null 
     const itemNums = itemName.match(/\d+(\.\d+)?/g) || [];
     let score = 0;
 
-    const matchedNums = itemNums.filter(n => rawNums.includes(n));
+    const matchedNums = itemNums.filter((n: string) => (rawNums as string[]).includes(n));
     score += (matchedNums.length * 40);
 
     const rawTokens = rawClean.split(" ");
