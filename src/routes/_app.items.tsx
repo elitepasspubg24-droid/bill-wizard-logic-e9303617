@@ -29,7 +29,9 @@ import {
   ReceiptText, 
   Image as ImageIcon,
   History,
-  ArrowLeftRight 
+  ArrowLeftRight,
+  ScanLine,
+  Loader2
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -41,6 +43,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Sheet,
@@ -54,6 +57,8 @@ import {
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import html2canvas from "html2canvas";
+import { useServerFn } from "@tanstack/react-start";
+import { extractBillFromImage } from "@/lib/ai.functions";
 
 type ColKey = "gauge_diff" | "today" | "sauda" | "party" | "available_qty" | "last_purchase_rate";
 const ALL_COLS: { key: ColKey; label: string }[] = [
@@ -91,12 +96,22 @@ export const Route = createFileRoute("/_app/items")({
   head: () => ({ meta: [{ title: "Items Summary" }] }),
 });
 
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result as string);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+}
+
 function ItemsPage() {
   const factories = useQuery({ queryKey: ["factories"], queryFn: fetchFactories });
   const sections = useQuery({ queryKey: ["sections"], queryFn: fetchSections });
   const items = useQuery({ queryKey: ["items"], queryFn: fetchItems });
   const saudas = useQuery({ queryKey: ["saudas"], queryFn: fetchSaudas });
   const queryClient = useQueryClient();
+  const extract = useServerFn(extractBillFromImage);
   
   const [saving, setSaving] = useState(false);
   const [q, setQ] = useState("");
@@ -110,6 +125,10 @@ function ItemsPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [partyName, setPartyName] = useState("");
   const cartRef = useRef<HTMLDivElement>(null);
+
+  // --- AI SCAN STATE ---
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [isScanEnquiryOpen, setIsScanEnquiryOpen] = useState(false);
 
   // --- DIALOG STATES ---
   const [isSectionDialogOpen, setIsSectionDialogOpen] = useState(false);
@@ -196,7 +215,7 @@ function ItemsPage() {
       const baseParty = baseToday + activePartyAdder;
 
       const topSauda = allOpenSaudas.find(
-        (so) => so.id === pickedSauda[s.id] || so.factory_id === activeTodayFactoryId
+        (so) => so.id === pickedSauda[s.id] || (so.factory_id === activeTodayFactoryId && !pickedSauda[s.id])
       );
       const saudaFactory: any = topSauda ? fmap.get(topSauda.factory_id) : null;
       const saudaFacAdder = Number(saudaFactory?.adder ?? 0);
@@ -264,6 +283,78 @@ function ItemsPage() {
         saudaBasic: meta?.topSauda?.basic || null,
       }];
     });
+  };
+
+  const handleEnquiryScan = async (file: File) => {
+    if (!file) return;
+    setIsExtracting(true);
+    const tid = toast.loading("AI scanning enquiry requirements...");
+    
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      const sectionMap = new Map((sections.data ?? []).map((s: any) => [s.id, s.name]));
+      const catalog = (items.data ?? []).map((it: any) => ({
+        id: it.id,
+        name: it.name,
+        section: it.section_id ? sectionMap.get(it.section_id) ?? null : null,
+      }));
+      
+      const result = await extract({ data: { dataUrl, type: "sale", catalog } });
+      
+      if (!result.items || result.items.length === 0) {
+        toast.error("No items detected in document.", { id: tid });
+        return;
+      }
+
+      const newCartItems: CartItem[] = [];
+      let matchedCount = 0;
+
+      // Find matched items in our current context-aware grouped view to get correct rates
+      result.items.forEach((extracted) => {
+        if (!extracted.matched_item_id) return;
+        
+        for (const g of grouped) {
+          const found = g.rows.find((r: any) => r.id === extracted.matched_item_id);
+          if (found) {
+            if (cart.some(c => c.id === found.id)) return;
+
+            newCartItems.push({
+              id: found.id,
+              name: found.name,
+              rate: found.party,
+              sectionName: g.section.name,
+              qty: extracted.qty > 0 ? String(extracted.qty) : "",
+              gauge_diff: found.gauge_diff,
+              today: found.today,
+              sauda: found.sauda,
+              available_qty: found.available_qty,
+              last_purchase_rate: found.last_purchase_rate,
+              todayFactoryName: g.activeTodayFactory?.name || "Default Factory",
+              todayBasic: g.activeFacBasic || 0,
+              todayAdder: g.activeFacAdder || 0,
+              partyAdder: g.activePartyAdder || 0,
+              saudaName: g.topSauda?.party || null,
+              saudaBasic: g.topSauda?.basic || null,
+            });
+            matchedCount++;
+            break;
+          }
+        }
+      });
+
+      if (newCartItems.length > 0) {
+        setCart(prev => [...prev, ...newCartItems]);
+        if (result.vendor) setPartyName(result.vendor);
+        toast.success(`Matched ${matchedCount} items and added to cart.`, { id: tid });
+      } else {
+        toast.warning("Could not match any items automatically.", { id: tid });
+      }
+      setIsScanEnquiryOpen(false);
+    } catch (e: any) {
+      toast.error(e.message ?? "Scan failed", { id: tid });
+    } finally {
+      setIsExtracting(false);
+    }
   };
 
   const updateCartRate = (id: string, rate: number) => {
@@ -539,181 +630,178 @@ function ItemsPage() {
       <div className="flex items-center justify-between border-b pb-3 gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           <h2 className="text-2xl font-bold">Items Matrix</h2>
-          <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="outline" size="sm" className="relative h-9 gap-2">
-                <ShoppingCart className="h-4 w-4" />
-                Cart
-                {cart.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] rounded-full h-4 w-4 flex items-center justify-center font-bold">
-                    {cart.length}
-                  </span>
-                )}
-              </Button>
-            </SheetTrigger>
-            <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
-              <SheetHeader>
-                <SheetTitle className="flex items-center gap-2">
-                  <ReceiptText className="h-5 w-5" /> Quotation Cart & Verification
-                </SheetTitle>
-                <SheetDescription>Verify live Today, Adder, and Sauda preview configurations before exporting.</SheetDescription>
-              </SheetHeader>
-              
-              <div className="py-6 space-y-6">
-                <div className="space-y-1.5">
-                  <Label htmlFor="cart-party">Party Name (Optional)</Label>
-                  <Input 
-                    id="cart-party" 
-                    placeholder="Enter customer name..." 
-                    value={partyName} 
-                    onChange={(e) => setPartyName(e.target.value)} 
-                  />
-                </div>
-
-                {cart.length === 0 ? (
-                  <div className="text-center py-10 text-muted-foreground text-sm">Your cart is empty.</div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                        Selected Items ({cart.length})
-                      </div>
-                      <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={handleCopyText}>
-                        <FileText className="h-3 w-3" /> Copy Text Format
-                      </Button>
-                    </div>
-
-                    {/* HIDDEN CONTAINER FOR IMAGE EXPORT (CLEAN VIEW ONLY) */}
-                    <div className="absolute left-[-9999px] top-0">
-                      <div ref={cartRef} className="p-8 w-[600px] bg-white text-slate-950">
-                        <div className="flex justify-between items-end mb-6 border-b-2 border-slate-900 pb-4">
-                          <div>
-                            <h1 className="text-2xl font-black uppercase">Quotation</h1>
-                            <p className="text-sm font-bold text-slate-600">{partyName || "Valued Customer"}</p>
-                          </div>
-                          <p className="text-sm font-medium">{new Date().toLocaleDateString()}</p>
-                        </div>
-                        <table className="w-full text-left border-collapse">
-                          <thead>
-                            <tr className="border-b-2 border-slate-900 text-sm">
-                              <th className="py-2">Item Description</th>
-                              <th className="py-2 text-center">Qty</th>
-                              <th className="py-2 text-right">Rate</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {cart.map(item => (
-                              <tr key={item.id} className="border-b border-slate-200">
-                                <td className="py-3 font-bold">{item.name}</td>
-                                <td className="py-3 text-center">{item.qty || "—"}</td>
-                                <td className="py-3 text-right font-mono font-bold">₹{Number(item.rate).toFixed(0)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                        <div className="mt-8 text-[10px] text-center text-slate-400 italic">
-                          This is a computer generated document.
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* PREVIEW CARDS WITH FULL CONFIGURATION DETAILS */}
-                    <div className="space-y-3">
-                      {cart.map((item) => (
-                        <div key={item.id} className="flex flex-col gap-2 p-3 border rounded-lg bg-muted/20 shadow-xs">
-                          <div className="flex items-center justify-between border-b pb-2">
-                            <div className="truncate pr-4">
-                              <p className="text-[10px] uppercase text-muted-foreground font-bold">{item.sectionName}</p>
-                              <p className="text-sm font-semibold truncate">{item.name}</p>
-                            </div>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => toggleCart(item, "")}>
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-
-                          {/* DEDICATED TODAY RATE, ADDER & SAUDA PREVIEW BOX */}
-                          <div className="text-[11px] bg-muted/50 p-2 rounded border border-border/60 space-y-1">
-                            <div className="flex justify-between items-center text-foreground">
-                              <span className="text-muted-foreground font-medium">Today Rate Config:</span>
-                              <span className="font-semibold">{item.todayFactoryName} (Basic: ₹{item.todayBasic} + Adder: ₹{item.todayAdder})</span>
-                            </div>
-                            <div className="flex justify-between items-center text-foreground">
-                              <span className="text-muted-foreground font-medium">Sauda Selected:</span>
-                              <span className={`font-semibold ${item.saudaName ? "text-primary" : "text-muted-foreground"}`}>
-                                {item.saudaName ? `${item.saudaName} (Basic: ₹${item.saudaBasic})` : "No Sauda Selected"}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* INTERNAL VERIFICATION METRICS */}
-                          <div className="grid grid-cols-5 gap-1 py-1.5 bg-muted/40 rounded px-2 text-[10px] text-center">
-                            <div>
-                              <span className="text-muted-foreground block">Gauge</span>
-                              <span className="font-mono font-medium">{item.gauge_diff > 0 ? `+${item.gauge_diff}` : item.gauge_diff}</span>
-                            </div>
-                            <div>
-                              <span className="text-muted-foreground block">Today</span>
-                              <span className="font-mono font-semibold text-primary">₹{Number(item.today).toFixed(0)}</span>
-                            </div>
-                            <div>
-                              <span className="text-muted-foreground block">Sauda</span>
-                              <span className="font-mono">{item.sauda !== null ? `₹${Number(item.sauda).toFixed(0)}` : "—"}</span>
-                            </div>
-                            <div>
-                              <span className="text-muted-foreground block">Stock</span>
-                              <span className="font-mono">{Number(item.available_qty).toFixed(1)}t</span>
-                            </div>
-                            <div>
-                              <span className="text-muted-foreground block">Last Pur.</span>
-                              <span className="font-mono">{item.last_purchase_rate ? `₹${item.last_purchase_rate}` : "—"}</span>
-                            </div>
-                          </div>
-                          
-                          <div className="grid grid-cols-2 gap-3 pt-1">
-                            <div className="space-y-1">
-                              <Label className="text-[10px]">Quantity (Optional)</Label>
-                              <Input 
-                                placeholder="Leave blank if none" 
-                                value={item.qty} 
-                                onChange={(e) => updateCartQty(item.id, e.target.value)}
-                                className="h-8 text-xs bg-background"
-                              />
-                            </div>
-                            <div className="space-y-1 text-right">
-                              <Label className="text-[10px] text-primary font-bold">Final Party Rate (₹)</Label>
-                              <Input 
-                                type="number" 
-                                value={item.rate} 
-                                onChange={(e) => updateCartRate(item.id, Number(e.target.value))}
-                                className="h-8 text-right font-mono font-bold text-xs bg-background border-primary/40"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <SheetFooter className="flex-col gap-2 sm:flex-col mt-auto border-t pt-4">
-                <div className="grid grid-cols-3 gap-2 w-full">
-                  <Button disabled={cart.length === 0} onClick={handleExportCartPDF} variant="outline" className="gap-1.5 text-xs">
-                    <Download className="h-3.5 w-3.5" /> PDF
-                  </Button>
-                  <Button disabled={cart.length === 0} onClick={handleExportCartImage} variant="outline" className="gap-1.5 text-xs">
-                    <ImageIcon className="h-3.5 w-3.5" /> Image
-                  </Button>
-                  <Button disabled={cart.length === 0} onClick={handleDownloadText} className="gap-1.5 text-xs bg-slate-800 text-white hover:bg-slate-700">
-                    <FileText className="h-3.5 w-3.5" /> TXT
-                  </Button>
-                </div>
-                <Button variant="ghost" className="w-full text-xs text-muted-foreground h-8" onClick={() => setCart([])} disabled={cart.length === 0}>
-                  Clear Cart
+          
+          {/* CART & AI SCAN BUTTONS */}
+          <div className="flex items-center gap-2">
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="sm" className="relative h-9 gap-2">
+                  <ShoppingCart className="h-4 w-4" />
+                  Cart
+                  {cart.length > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] rounded-full h-4 w-4 flex items-center justify-center font-bold">
+                      {cart.length}
+                    </span>
+                  )}
                 </Button>
-              </SheetFooter>
-            </SheetContent>
-          </Sheet>
+              </SheetTrigger>
+              <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+                <SheetHeader>
+                  <SheetTitle className="flex items-center gap-2">
+                    <ReceiptText className="h-5 w-5" /> Quotation Cart & Verification
+                  </SheetTitle>
+                  <SheetDescription>Verify live Today, Adder, and Sauda preview configurations before exporting.</SheetDescription>
+                </SheetHeader>
+                
+                <div className="py-6 space-y-6">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cart-party">Party Name (Optional)</Label>
+                    <Input 
+                      id="cart-party" 
+                      placeholder="Enter customer name..." 
+                      value={partyName} 
+                      onChange={(e) => setPartyName(e.target.value)} 
+                    />
+                  </div>
+
+                  {cart.length === 0 ? (
+                    <div className="text-center py-10 text-muted-foreground text-sm">Your cart is empty.</div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                          Selected Items ({cart.length})
+                        </div>
+                        <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={handleCopyText}>
+                          <FileText className="h-3 w-3" /> Copy Text Format
+                        </Button>
+                      </div>
+
+                      {/* HIDDEN CONTAINER FOR IMAGE EXPORT */}
+                      <div className="absolute left-[-9999px] top-0">
+                        <div ref={cartRef} className="p-8 w-[600px] bg-white text-slate-950">
+                          <div className="flex justify-between items-end mb-6 border-b-2 border-slate-900 pb-4">
+                            <div>
+                              <h1 className="text-2xl font-black uppercase">Quotation</h1>
+                              <p className="text-sm font-bold text-slate-600">{partyName || "Valued Customer"}</p>
+                            </div>
+                            <p className="text-sm font-medium">{new Date().toLocaleDateString()}</p>
+                          </div>
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="border-b-2 border-slate-900 text-sm">
+                                <th className="py-2">Item Description</th>
+                                <th className="py-2 text-center">Qty</th>
+                                <th className="py-2 text-right">Rate</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {cart.map(item => (
+                                <tr key={item.id} className="border-b border-slate-200">
+                                  <td className="py-3 font-bold">{item.name}</td>
+                                  <td className="py-3 text-center">{item.qty || "—"}</td>
+                                  <td className="py-3 text-right font-mono font-bold">₹{Number(item.rate).toFixed(0)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          <div className="mt-8 text-[10px] text-center text-slate-400 italic">
+                            This is a computer generated document.
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* PREVIEW CARDS */}
+                      <div className="space-y-3">
+                        {cart.map((item) => (
+                          <div key={item.id} className="flex flex-col gap-2 p-3 border rounded-lg bg-muted/20 shadow-xs">
+                            <div className="flex items-center justify-between border-b pb-2">
+                              <div className="truncate pr-4">
+                                <p className="text-[10px] uppercase text-muted-foreground font-bold">{item.sectionName}</p>
+                                <p className="text-sm font-semibold truncate">{item.name}</p>
+                              </div>
+                              <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => toggleCart(item, "")}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+
+                            <div className="text-[11px] bg-muted/50 p-2 rounded border border-border/60 space-y-1">
+                              <div className="flex justify-between items-center text-foreground">
+                                <span className="text-muted-foreground font-medium">Today Rate Config:</span>
+                                <span className="font-semibold">{item.todayFactoryName} (Basic: ₹{item.todayBasic} + Adder: ₹{item.todayAdder})</span>
+                              </div>
+                              <div className="flex justify-between items-center text-foreground">
+                                <span className="text-muted-foreground font-medium">Sauda Selected:</span>
+                                <span className={`font-semibold ${item.saudaName ? "text-primary" : "text-muted-foreground"}`}>
+                                  {item.saudaName ? `${item.saudaName} (Basic: ₹${item.saudaBasic})` : "No Sauda Selected"}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-5 gap-1 py-1.5 bg-muted/40 rounded px-2 text-[10px] text-center">
+                              <div><span className="text-muted-foreground block">Gauge</span><span className="font-mono font-medium">{item.gauge_diff > 0 ? `+${item.gauge_diff}` : item.gauge_diff}</span></div>
+                              <div><span className="text-muted-foreground block">Today</span><span className="font-mono font-semibold text-primary">₹{Number(item.today).toFixed(0)}</span></div>
+                              <div><span className="text-muted-foreground block">Sauda</span><span className="font-mono">{item.sauda !== null ? `₹${Number(item.sauda).toFixed(0)}` : "—"}</span></div>
+                              <div><span className="text-muted-foreground block">Stock</span><span className="font-mono">{Number(item.available_qty).toFixed(1)}t</span></div>
+                              <div><span className="text-muted-foreground block">Last Pur.</span><span className="font-mono">{item.last_purchase_rate ? `₹${item.last_purchase_rate}` : "—"}</span></div>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-3 pt-1">
+                              <div className="space-y-1"><Label className="text-[10px]">Quantity</Label><Input placeholder="Optional" value={item.qty} onChange={(e) => updateCartQty(item.id, e.target.value)} className="h-8 text-xs bg-background" /></div>
+                              <div className="space-y-1 text-right"><Label className="text-[10px] text-primary font-bold">Party Rate (₹)</Label><Input type="number" value={item.rate} onChange={(e) => updateCartRate(item.id, Number(e.target.value))} className="h-8 text-right font-mono font-bold text-xs bg-background border-primary/40" /></div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <SheetFooter className="flex-col gap-2 sm:flex-col mt-auto border-t pt-4">
+                  <div className="grid grid-cols-3 gap-2 w-full">
+                    <Button disabled={cart.length === 0} onClick={handleExportCartPDF} variant="outline" className="gap-1.5 text-xs"><Download className="h-3.5 w-3.5" /> PDF</Button>
+                    <Button disabled={cart.length === 0} onClick={handleExportCartImage} variant="outline" className="gap-1.5 text-xs"><ImageIcon className="h-3.5 w-3.5" /> Image</Button>
+                    <Button disabled={cart.length === 0} onClick={handleDownloadText} className="gap-1.5 text-xs bg-slate-800 text-white"><FileText className="h-3.5 w-3.5" /> TXT</Button>
+                  </div>
+                  <Button variant="ghost" className="w-full text-xs text-muted-foreground h-8" onClick={() => setCart([])} disabled={cart.length === 0}>Clear Cart</Button>
+                </SheetFooter>
+              </SheetContent>
+            </Sheet>
+
+            {/* AI ENQUIRY SCANNER DIALOG */}
+            <Dialog open={isScanEnquiryOpen} onOpenChange={setIsScanEnquiryOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="h-9 gap-1.5 text-blue-600 border-blue-200 hover:bg-blue-50">
+                  <ScanLine className="h-4 w-4" /> Scan Enquiry
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>AI Enquiry Scanner</DialogTitle>
+                  <DialogDescription>Upload an enquiry photo. AI will match your products and apply current rates automatically.</DialogDescription>
+                </DialogHeader>
+                <div className="py-4 space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="enquiry-file">Requirement Image / PDF</Label>
+                    <Input 
+                      id="enquiry-file" 
+                      type="file" 
+                      accept="image/*,application/pdf" 
+                      onChange={(e) => e.target.files?.[0] && handleEnquiryScan(e.target.files[0])}
+                      disabled={isExtracting}
+                    />
+                  </div>
+                  {isExtracting && (
+                    <div className="flex flex-col items-center justify-center py-8 space-y-3">
+                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      <p className="text-sm font-medium animate-pulse">Reading document & matching items...</p>
+                    </div>
+                  )}
+                </div>
+                <DialogFooter><Button variant="ghost" onClick={() => setIsScanEnquiryOpen(false)} disabled={isExtracting}>Cancel</Button></DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
 
         <div className="flex items-center gap-2 ml-auto">
