@@ -66,7 +66,7 @@ const ALL_COLS: { key: ColKey; label: string }[] = [
 ];
 const DEFAULT_PDF_COLS: ColKey[] = ["available_qty", "last_purchase_rate"];
 
-// UPGRADED CART ITEM
+// UPGRADED CART ITEM WITH FACTORY & SAUDA PREVIEW METADATA
 type CartItem = {
   id: string;
   name: string;
@@ -78,6 +78,12 @@ type CartItem = {
   sauda: number | null;
   available_qty: number;
   last_purchase_rate: string | number | null;
+  todayFactoryName?: string;
+  todayBasic?: number;
+  todayAdder?: number;
+  partyAdder?: number;
+  saudaName?: string;
+  saudaBasic?: number;
 };
 
 export const Route = createFileRoute("/_app/items")({
@@ -233,7 +239,7 @@ function ItemsPage() {
     });
   }, [factories.data, sections.data, items.data, pickedTodayFactory, pickedSauda, allOpenSaudas, q, localGauges]);
 
-  const toggleCart = (item: any, sectionName: string) => {
+  const toggleCart = (item: any, sectionName: string, meta?: any) => {
     setCart((prev) => {
       const isSelected = prev.find((i) => i.id === item.id);
       if (isSelected) {
@@ -249,7 +255,13 @@ function ItemsPage() {
         today: item.today,
         sauda: item.sauda,
         available_qty: item.available_qty,
-        last_purchase_rate: item.last_purchase_rate
+        last_purchase_rate: item.last_purchase_rate,
+        todayFactoryName: meta?.activeTodayFactory?.name || "Default Factory",
+        todayBasic: meta?.activeFacBasic || 0,
+        todayAdder: meta?.activeFacAdder || 0,
+        partyAdder: meta?.activePartyAdder || 0,
+        saudaName: meta?.topSauda?.party || null,
+        saudaBasic: meta?.topSauda?.basic || null,
       }];
     });
   };
@@ -262,10 +274,16 @@ function ItemsPage() {
     setCart((prev) => prev.map((i) => (i.id === id ? { ...i, qty } : i)));
   };
 
-  // --- TEXT COPY / DOWNLOAD HELPER ---
+  // --- CLEAN TEXT COPY / DOWNLOAD HELPER ---
   const getFormattedCartText = () => {
     return cart
-      .map((item, idx) => `${idx + 1}. ${item.name} - ${item.qty || "1 pc"}@${Number(item.rate).toFixed(0)}`)
+      .map((item, idx) => {
+        const rateFormatted = `₹${Number(item.rate).toFixed(0)}`;
+        if (item.qty && item.qty.trim() !== "") {
+          return `${idx + 1}. ${item.name} - ${item.qty.trim()} @ ${rateFormatted}`;
+        }
+        return `${idx + 1}. ${item.name} - ${rateFormatted}`;
+      })
       .join("\n");
   };
 
@@ -538,7 +556,7 @@ function ItemsPage() {
                 <SheetTitle className="flex items-center gap-2">
                   <ReceiptText className="h-5 w-5" /> Quotation Cart & Verification
                 </SheetTitle>
-                <SheetDescription>Double-check current matrix rates before exporting.</SheetDescription>
+                <SheetDescription>Verify live Today, Adder, and Sauda preview configurations before exporting.</SheetDescription>
               </SheetHeader>
               
               <div className="py-6 space-y-6">
@@ -599,7 +617,7 @@ function ItemsPage() {
                       </div>
                     </div>
 
-                    {/* PREVIEW CARDS WITH FULL MATRIX DETAILS FOR DOUBLE-CHECKING */}
+                    {/* PREVIEW CARDS WITH FULL CONFIGURATION DETAILS */}
                     <div className="space-y-3">
                       {cart.map((item) => (
                         <div key={item.id} className="flex flex-col gap-2 p-3 border rounded-lg bg-muted/20 shadow-xs">
@@ -613,7 +631,21 @@ function ItemsPage() {
                             </Button>
                           </div>
 
-                          {/* INTERNAL VERIFICATION METRICS (NOT SHOWN IN EXPORT) */}
+                          {/* DEDICATED TODAY RATE, ADDER & SAUDA PREVIEW BOX */}
+                          <div className="text-[11px] bg-muted/50 p-2 rounded border border-border/60 space-y-1">
+                            <div className="flex justify-between items-center text-foreground">
+                              <span className="text-muted-foreground font-medium">Today Rate Config:</span>
+                              <span className="font-semibold">{item.todayFactoryName} (Basic: ₹{item.todayBasic} + Adder: ₹{item.todayAdder})</span>
+                            </div>
+                            <div className="flex justify-between items-center text-foreground">
+                              <span className="text-muted-foreground font-medium">Sauda Selected:</span>
+                              <span className={`font-semibold ${item.saudaName ? "text-primary" : "text-muted-foreground"}`}>
+                                {item.saudaName ? `${item.saudaName} (Basic: ₹${item.saudaBasic})` : "No Sauda Selected"}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* INTERNAL VERIFICATION METRICS */}
                           <div className="grid grid-cols-5 gap-1 py-1.5 bg-muted/40 rounded px-2 text-[10px] text-center">
                             <div>
                               <span className="text-muted-foreground block">Gauge</span>
@@ -639,16 +671,16 @@ function ItemsPage() {
                           
                           <div className="grid grid-cols-2 gap-3 pt-1">
                             <div className="space-y-1">
-                              <Label className="text-[10px]">Quantity</Label>
+                              <Label className="text-[10px]">Quantity (Optional)</Label>
                               <Input 
-                                placeholder="e.g. 5 ton / 10 pc" 
+                                placeholder="Leave blank if none" 
                                 value={item.qty} 
                                 onChange={(e) => updateCartQty(item.id, e.target.value)}
                                 className="h-8 text-xs bg-background"
                               />
                             </div>
                             <div className="space-y-1 text-right">
-                              <Label className="text-[10px] text-primary font-bold">Final Party Rate</Label>
+                              <Label className="text-[10px] text-primary font-bold">Final Party Rate (₹)</Label>
                               <Input 
                                 type="number" 
                                 value={item.rate} 
@@ -750,7 +782,7 @@ function ItemsPage() {
 
       {/* 📱 MOBILE VIEW: Compact Table */}
       <div className="block md:hidden space-y-4">
-        {grouped.map(({ section, activeTodayFactory, activeFacBasic, activeFacAdder, topSauda, rows }) => (
+        {grouped.map(({ section, activeTodayFactory, activeFacBasic, activeFacAdder, activePartyAdder, topSauda, rows }) => (
           <div
             key={section.id}
             id={`section-${section.id}`}
@@ -833,7 +865,7 @@ function ItemsPage() {
                       <td className="py-2 px-1 pl-2 font-medium text-foreground break-words">
                         <div className="flex items-center gap-1">
                           <button 
-                            onClick={() => toggleCart(r, section.name)} 
+                            onClick={() => toggleCart(r, section.name, { activeTodayFactory, activeFacBasic, activeFacAdder, activePartyAdder, topSauda })} 
                             className={`p-1 rounded-md transition-colors ${isInCart ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-primary"}`}
                           >
                             <ShoppingCart className="h-3 w-3" />
@@ -875,7 +907,7 @@ function ItemsPage() {
 
       {/* 💻 DESKTOP VIEW: Spacious Table */}
       <div className="hidden md:block space-y-4">
-        {grouped.map(({ section, activeTodayFactory, activeFacBasic, activeFacAdder, topSauda, rows }) => (
+        {grouped.map(({ section, activeTodayFactory, activeFacBasic, activeFacAdder, activePartyAdder, topSauda, rows }) => (
           <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20 overflow-visible">
             <div className="sticky top-14 z-20 bg-card border-b shadow-xs rounded-t-lg">
               <div className="p-4 pb-2 flex flex-wrap items-center justify-between gap-3">
@@ -952,7 +984,7 @@ function ItemsPage() {
                     <div key={r.id} className={`flex px-4 py-2.5 items-center hover:bg-muted/10 transition-colors group ${isInCart ? "bg-primary/[0.03]" : ""}`}>
                       <div className="w-[24%] text-left font-medium pr-2 text-slate-900 flex items-center gap-2">
                         <button 
-                          onClick={() => toggleCart(r, section.name)} 
+                          onClick={() => toggleCart(r, section.name, { activeTodayFactory, activeFacBasic, activeFacAdder, activePartyAdder, topSauda })} 
                           className={`p-1.5 rounded-md transition-colors ${isInCart ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-primary hover:bg-muted"}`}
                         >
                           <ShoppingCart className="h-3.5 w-3.5" />
