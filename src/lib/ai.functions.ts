@@ -93,7 +93,7 @@ ${catalogText}`;
       },
     ];
 
-    // 4. Send request directly to Groq API endpoint
+ // 4. Send request directly to Groq API endpoint
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -101,12 +101,13 @@ ${catalogText}`;
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "llama-3.2-11b-vision-preview", // Free tier high-speed vision model
+        model: "qwen/qwen3.6-27b", // Current active vision model
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userContent },
         ],
         response_format: { type: "json_object" }, // Forces structured output JSON mode
+        reasoning_format: "hidden", // CRUCIAL: Hides internal thinking tokens so they don't corrupt the JSON payload
         temperature: 0.1, // Keeps extractions deterministic and accurate
       }),
     });
