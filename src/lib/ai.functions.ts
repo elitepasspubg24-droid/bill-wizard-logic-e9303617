@@ -56,17 +56,17 @@ function findSteelMatch(rawRead: string, catalog: CatalogItem[]): string | null 
 export const extractBillFromImage = createServerFn({ method: "POST" })
   .inputValidator((data: { dataUrl: string; type: "purchase" | "sale"; catalog?: CatalogItem[] }) => data)
   .handler(async ({ data }): Promise<ExtractedBill> => {
-    const apiKey = process.env.LOVABLE_API_KEY;
-    if (!apiKey) throw new Error("LOVABLE_API_KEY not configured.");
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) throw new Error("Add OPENROUTER_API_KEY (free key at openrouter.ai/keys).");
 
     const prompt = `You are a high-precision OCR for an Indian Steel Yard.
-Read this ${data.type} document. Extract items, weights (Metric Tonnes), and rates.
+Read this ${data.type} document (may be handwritten). Extract items, weights (Metric Tonnes), and rates.
 
 CRITICAL RULES:
 - QTY: Keep decimals (e.g. 0.350). ".450" is 0.450.
 - NAME: Extract the full size/description (e.g. "38x38x11kg").
 - TOTALS: Skip all sum/total rows.
-- FORMAT: Return ONLY valid JSON.
+- FORMAT: Return ONLY valid JSON, no markdown.
 
 {
   "vendor": "Name",
@@ -75,15 +75,17 @@ CRITICAL RULES:
   "items": [{ "raw_name": "Full Desc", "qty": 0.000, "rate": 0 }]
 }`;
 
-    // Lovable AI Gateway — no user key needed, includes free monthly allowance
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    // OpenRouter — free Gemini vision (best handwriting reader on the free tier)
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
+        "HTTP-Referer": "https://lovable.dev",
+        "X-Title": "Steel Manager",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash-lite",
+        model: "google/gemini-2.0-flash-exp:free",
         messages: [{
           role: "user",
           content: [
@@ -97,8 +99,7 @@ CRITICAL RULES:
 
     if (!response.ok) {
       const errorText = await response.text();
-      if (response.status === 429) throw new Error("Rate limit hit. Wait a moment and retry.");
-      if (response.status === 402) throw new Error("AI credits exhausted. Add credits in Lovable settings.");
+      if (response.status === 429) throw new Error("Free daily limit hit. Wait a bit and retry.");
       throw new Error(`AI failed (${response.status}): ${errorText.slice(0, 200)}`);
     }
 
@@ -106,6 +107,7 @@ CRITICAL RULES:
     const aiText = resJson.choices?.[0]?.message?.content;
 
     if (!aiText) throw new Error("AI returned no text. Check photo clarity.");
+
 
 
     let parsed: any;
