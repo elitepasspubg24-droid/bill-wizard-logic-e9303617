@@ -1,7 +1,8 @@
+--- START OF FILE bill-wizard-logic-e9303617-main/src/routes/_app.bills.tsx ---
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { fetchBills, fetchItems, fetchSaudas, fetchSections } from "@/lib/queries";
 import { ItemPicker } from "@/components/ItemPicker";
 import { supabase } from "@/integrations/supabase/client";
@@ -60,6 +61,10 @@ function EditBillDialog({
   const [billItems, setBillItems] = useState<any[]>(
     (bill.bill_items ?? []).map((bi: any) => ({ ...bi }))
   );
+
+  const totalQty = useMemo(() => {
+    return billItems.reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
+  }, [billItems]);
 
   const mut = useMutation({
     mutationFn: async () => {
@@ -131,9 +136,11 @@ function EditBillDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader><DialogTitle>Edit Bill</DialogTitle></DialogHeader>
-        <div className="space-y-4">
+      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
+        <DialogHeader className="p-6 pb-2">
+          <DialogTitle>Edit Bill</DialogTitle>
+        </DialogHeader>
+        <div className="flex-1 overflow-y-auto px-6 py-2 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div><Label>Vendor</Label><Input value={vendor} onChange={(e) => setVendor(e.target.value)} /></div>
             <div><Label>Bill No</Label><Input value={billNo} onChange={(e) => setBillNo(e.target.value)} /></div>
@@ -141,19 +148,19 @@ function EditBillDialog({
           </div>
           {billItems.length > 0 && (
             <div className="overflow-x-auto border rounded-md">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50 border-b text-left">
+              <table className="w-full text-sm min-w-[600px]">
+                <thead className="bg-muted/50 border-b text-left sticky top-0 z-10">
                   <tr>
                     <th className="p-2">Raw Name</th>
                     <th className="p-2">Match Item</th>
-                    <th className="p-2 w-24">Qty</th>
-                    <th className="p-2 w-28">Rate</th>
+                    <th className="p-2 w-28">Qty (MT)</th>
+                    <th className="p-2 w-32">Rate</th>
                   </tr>
                 </thead>
                 <tbody>
                   {billItems.map((bi, i) => (
                     <tr key={bi.id} className="border-b last:border-0">
-                      <td className="p-2 text-muted-foreground italic">{bi.raw_name}</td>
+                      <td className="p-2 text-muted-foreground italic text-xs max-w-[150px] truncate">{bi.raw_name}</td>
                       <td className="p-2">
                         <ItemPicker
                           items={items}
@@ -164,31 +171,49 @@ function EditBillDialog({
                             updated[i] = { ...updated[i], item_id: id };
                             setBillItems(updated);
                           }}
-                          width="w-56"
+                          width="w-full"
                         />
                       </td>
                       <td className="p-2">
-                        <Input type="number" value={bi.qty} onChange={(e) => {
-                          const updated = [...billItems];
-                          updated[i] = { ...updated[i], qty: e.target.value };
-                          setBillItems(updated);
-                        }} />
+                        <Input 
+                          type="number" 
+                          step="0.001"
+                          value={bi.qty} 
+                          onChange={(e) => {
+                            const updated = [...billItems];
+                            updated[i] = { ...updated[i], qty: e.target.value };
+                            setBillItems(updated);
+                          }} 
+                          className="font-mono h-10 text-base sm:text-sm"
+                        />
                       </td>
                       <td className="p-2">
-                        <Input type="number" value={bi.rate} onChange={(e) => {
-                          const updated = [...billItems];
-                          updated[i] = { ...updated[i], rate: e.target.value };
-                          setBillItems(updated);
-                        }} />
+                        <Input 
+                          type="number" 
+                          value={bi.rate} 
+                          onChange={(e) => {
+                            const updated = [...billItems];
+                            updated[i] = { ...updated[i], rate: e.target.value };
+                            setBillItems(updated);
+                          }} 
+                          className="font-mono h-10 text-base sm:text-sm"
+                        />
                       </td>
                     </tr>
                   ))}
                 </tbody>
+                <tfoot className="bg-muted/30 font-bold border-t">
+                  <tr>
+                    <td colSpan={2} className="p-3 text-right uppercase tracking-wider text-xs">Total Quantity</td>
+                    <td className="p-3 font-mono text-base text-primary">{totalQty.toFixed(3)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}
         </div>
-        <DialogFooter>
+        <DialogFooter className="p-6 pt-2 border-t bg-muted/10">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button onClick={() => mut.mutate()} disabled={mut.isPending}>
             {mut.isPending ? <Loader2 className="animate-spin mr-2" /> : null}
@@ -297,6 +322,11 @@ function BillsPage() {
 
   const [editBill, setEditBill] = useState<any | null>(null);
   const [deleteBill, setDeleteBill] = useState<any | null>(null);
+
+  const totalDraftQty = useMemo(() => {
+    if (!draft) return 0;
+    return draft.items.reduce((sum, it) => sum + (Number(it.qty) || 0), 0);
+  }, [draft]);
 
   const initializeManual = () => {
     setDraft({
@@ -442,14 +472,14 @@ function BillsPage() {
                 <div><Label>Bill No</Label><Input value={draft.bill_no ?? ""} onChange={(e) => setDraft({ ...draft, bill_no: e.target.value })} /></div>
                 <div><Label>Bill Date</Label><Input type="date" value={draft.bill_date ?? ""} onChange={(e) => setDraft({ ...draft, bill_date: e.target.value })} /></div>
               </div>
-              <div className="overflow-x-auto border rounded-md">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50 border-b text-left">
+              <div className="overflow-x-auto border rounded-md max-h-[400px] overflow-y-auto">
+                <table className="w-full text-sm min-w-[600px]">
+                  <thead className="bg-muted/50 border-b text-left sticky top-0 z-10">
                     <tr>
                       <th className="p-2">Item Name</th>
                       <th className="p-2">Match Matrix Item</th>
-                      <th className="p-2 w-24">Qty (MT)</th>
-                      <th className="p-2 w-28">Rate</th>
+                      <th className="p-2 w-28">Qty (MT)</th>
+                      <th className="p-2 w-32">Rate</th>
                       <th className="p-2 w-10"></th>
                     </tr>
                   </thead>
@@ -457,9 +487,13 @@ function BillsPage() {
                     {draft.items.map((it, i) => (
                       <tr key={i} className="border-b last:border-0">
                         <td className="p-2">
-                           <Input value={it.raw_name} onChange={(e) => {
-                             const d = { ...draft }; d.items[i].raw_name = e.target.value; setDraft(d);
-                           }} />
+                           <Input 
+                             value={it.raw_name} 
+                             onChange={(e) => {
+                               const d = { ...draft }; d.items[i].raw_name = e.target.value; setDraft(d);
+                             }} 
+                             className="h-10 text-base sm:text-sm"
+                           />
                         </td>
                         <td className="p-2">
                           <ItemPicker
@@ -471,14 +505,25 @@ function BillsPage() {
                           />
                         </td>
                         <td className="p-2">
-                          <Input type="number" value={it.qty} onChange={(e) => {
-                            const d = { ...draft }; d.items[i].qty = Number(e.target.value); setDraft(d);
-                          }} />
+                          <Input 
+                            type="number" 
+                            step="0.001"
+                            value={it.qty} 
+                            onChange={(e) => {
+                              const d = { ...draft }; d.items[i].qty = Number(e.target.value); setDraft(d);
+                            }} 
+                            className="font-mono h-10 text-base sm:text-sm"
+                          />
                         </td>
                         <td className="p-2">
-                          <Input type="number" value={it.rate} onChange={(e) => {
-                            const d = { ...draft }; d.items[i].rate = Number(e.target.value); setDraft(d);
-                          }} />
+                          <Input 
+                            type="number" 
+                            value={it.rate} 
+                            onChange={(e) => {
+                              const d = { ...draft }; d.items[i].rate = Number(e.target.value); setDraft(d);
+                            }} 
+                            className="font-mono h-10 text-base sm:text-sm"
+                          />
                         </td>
                         <td>
                           <Button variant="ghost" size="icon" onClick={() => {
@@ -489,6 +534,13 @@ function BillsPage() {
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot className="bg-muted/30 font-bold border-t">
+                    <tr>
+                      <td colSpan={2} className="p-3 text-right uppercase tracking-wider text-xs">Total Quantity</td>
+                      <td className="p-3 font-mono text-base text-primary">{totalDraftQty.toFixed(3)}</td>
+                      <td colSpan={2}></td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
               <Button variant="outline" size="sm" onClick={() => {
