@@ -56,8 +56,8 @@ function findSteelMatch(rawRead: string, catalog: CatalogItem[]): string | null 
 export const extractBillFromImage = createServerFn({ method: "POST" })
   .inputValidator((data: { dataUrl: string; type: "purchase" | "sale"; catalog?: CatalogItem[] }) => data)
   .handler(async ({ data }): Promise<ExtractedBill> => {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error("Add GEMINI_API_KEY to Lovable Secrets (get free key at aistudio.google.com/apikey).");
+    const apiKey = process.env.LOVABLE_API_KEY;
+    if (!apiKey) throw new Error("LOVABLE_API_KEY not configured.");
 
     const prompt = `You are a high-precision OCR for an Indian Steel Yard.
 Read this ${data.type} document. Extract items, weights (Metric Tonnes), and rates.
@@ -75,42 +75,38 @@ CRITICAL RULES:
   "items": [{ "raw_name": "Full Desc", "qty": 0.000, "rate": 0 }]
 }`;
 
-    // Parse data URL -> mimeType + base64
-    const match = data.dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-    if (!match) throw new Error("Invalid image data.");
-    const mimeType = match[1];
-    const base64 = match[2];
-
-    // Direct Google Gemini API (free tier: 15 RPM, 1500/day on gemini-2.0-flash)
-    const model = "gemini-2.5-flash";
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-    const response = await fetch(url, {
+    // Lovable AI Gateway — no user key needed, includes free monthly allowance
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: prompt },
-            { inline_data: { mime_type: mimeType, data: base64 } }
+        model: "google/gemini-2.5-flash-lite",
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: data.dataUrl } }
           ]
         }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.1,
-        }
+        response_format: { type: "json_object" }
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Gemini API failed (${response.status}): ${errorText.slice(0, 200)}`);
+      if (response.status === 429) throw new Error("Rate limit hit. Wait a moment and retry.");
+      if (response.status === 402) throw new Error("AI credits exhausted. Add credits in Lovable settings.");
+      throw new Error(`AI failed (${response.status}): ${errorText.slice(0, 200)}`);
     }
 
     const resJson = await response.json();
-    const aiText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
+    const aiText = resJson.choices?.[0]?.message?.content;
 
     if (!aiText) throw new Error("AI returned no text. Check photo clarity.");
+
 
     let parsed: any;
     try {
