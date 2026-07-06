@@ -16,6 +16,7 @@ import { Route as AppSaudasRouteImport } from './routes/_app.saudas'
 import { Route as AppItemsRouteImport } from './routes/_app.items'
 import { Route as AppHistoryRouteImport } from './routes/_app.history'
 import { Route as AppBillsRouteImport } from './routes/_app.bills'
+import { Route as AppAnalysisRouteImport } from './routes/_app.analysis'
 import { Route as ApiPublicHooksSyncSheetsRouteImport } from './routes/api/public/hooks/sync-sheets'
 import { Route as ApiPublicHooksCleanupSaudasRouteImport } from './routes/api/public/hooks/cleanup-saudas'
 import { Route as ApiPublicHooksCleanupBillsRouteImport } from './routes/api/public/hooks/cleanup-bills'
@@ -54,6 +55,11 @@ const AppBillsRoute = AppBillsRouteImport.update({
   path: '/bills',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAnalysisRoute = AppAnalysisRouteImport.update({
+  id: '/analysis',
+  path: '/analysis',
+  getParentRoute: () => AppRoute,
+} as any)
 const ApiPublicHooksSyncSheetsRoute =
   ApiPublicHooksSyncSheetsRouteImport.update({
     id: '/api/public/hooks/sync-sheets',
@@ -76,6 +82,7 @@ const ApiPublicHooksCleanupBillsRoute =
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/auth': typeof AuthRoute
+  '/analysis': typeof AppAnalysisRoute
   '/bills': typeof AppBillsRoute
   '/history': typeof AppHistoryRoute
   '/items': typeof AppItemsRoute
@@ -86,6 +93,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
+  '/analysis': typeof AppAnalysisRoute
   '/bills': typeof AppBillsRoute
   '/history': typeof AppHistoryRoute
   '/items': typeof AppItemsRoute
@@ -99,6 +107,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/auth': typeof AuthRoute
+  '/_app/analysis': typeof AppAnalysisRoute
   '/_app/bills': typeof AppBillsRoute
   '/_app/history': typeof AppHistoryRoute
   '/_app/items': typeof AppItemsRoute
@@ -113,6 +122,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/auth'
+    | '/analysis'
     | '/bills'
     | '/history'
     | '/items'
@@ -123,6 +133,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/auth'
+    | '/analysis'
     | '/bills'
     | '/history'
     | '/items'
@@ -135,6 +146,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_app'
     | '/auth'
+    | '/_app/analysis'
     | '/_app/bills'
     | '/_app/history'
     | '/_app/items'
@@ -204,6 +216,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppBillsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/analysis': {
+      id: '/_app/analysis'
+      path: '/analysis'
+      fullPath: '/analysis'
+      preLoaderRoute: typeof AppAnalysisRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/api/public/hooks/sync-sheets': {
       id: '/api/public/hooks/sync-sheets'
       path: '/api/public/hooks/sync-sheets'
@@ -229,6 +248,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteChildren {
+  AppAnalysisRoute: typeof AppAnalysisRoute
   AppBillsRoute: typeof AppBillsRoute
   AppHistoryRoute: typeof AppHistoryRoute
   AppItemsRoute: typeof AppItemsRoute
@@ -237,6 +257,7 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAnalysisRoute: AppAnalysisRoute,
   AppBillsRoute: AppBillsRoute,
   AppHistoryRoute: AppHistoryRoute,
   AppItemsRoute: AppItemsRoute,
