@@ -18,14 +18,13 @@ export type CatalogItem = { id: string; name: string; section?: string | null };
 
 /**
  * STEEL-LOGIC MATCHING ENGINE
- * Professional grade dimension matching for 38x38, 90x45, etc.
  */
 function findSteelMatch(rawRead: string, catalog: CatalogItem[]): string | null {
   if (!rawRead || catalog.length === 0) return null;
 
   const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9.]/g, " ").replace(/\s+/g, " ").trim();
   const rawClean = clean(rawRead);
-  const rawNums = rawClean.match(/\d+(\.\d+)?/g) || []; // Extract sizes/weights
+  const rawNums = rawClean.match(/\d+(\.\d+)?/g) || [];
 
   let bestId: string | null = null;
   let maxScore = 0;
@@ -35,18 +34,14 @@ function findSteelMatch(rawRead: string, catalog: CatalogItem[]): string | null 
     const itemNums = itemName.match(/\d+(\.\d+)?/g) || [];
     let score = 0;
 
-    // 1. DIMENSION MATCH (38x38 vs 38x38)
-    // We check if the numbers the AI found match the numbers in your catalog item.
     const matchedNums = itemNums.filter(n => rawNums.includes(n));
     score += (matchedNums.length * 40);
 
-    // 2. TEXT OVERLAP (Pipe, Angle, MS)
     const rawTokens = rawClean.split(" ");
     for (const token of rawTokens) {
       if (token.length > 2 && itemName.includes(token)) score += 10;
     }
 
-    // 3. PERFECT MATCH
     if (itemName === rawClean) score += 200;
 
     if (score > maxScore) {
@@ -55,15 +50,14 @@ function findSteelMatch(rawRead: string, catalog: CatalogItem[]): string | null 
     }
   }
 
-  // Threshold: If we don't have a strong match (at least 2 numbers matching), return null
   return maxScore >= 70 ? bestId : null;
 }
 
 export const extractBillFromImage = createServerFn({ method: "POST" })
   .inputValidator((data: { dataUrl: string; type: "purchase" | "sale"; catalog?: CatalogItem[] }) => data)
   .handler(async ({ data }): Promise<ExtractedBill> => {
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) throw new Error("Add OPENROUTER_API_KEY to Lovable Secrets.");
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error("Add GEMINI_API_KEY to Lovable Secrets (get free key at aistudio.google.com/apikey).");
 
     const prompt = `You are a high-precision OCR for an Indian Steel Yard.
 Read this ${data.type} document. Extract items, weights (Metric Tonnes), and rates.
@@ -81,50 +75,52 @@ CRITICAL RULES:
   "items": [{ "raw_name": "Full Desc", "qty": 0.000, "rate": 0 }]
 }`;
 
-    // USE THE STABLE GLOBAL ID: google/gemini-flash-1.5
-    // This is the permanent production ID on OpenRouter.
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    // Parse data URL -> mimeType + base64
+    const match = data.dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) throw new Error("Invalid image data.");
+    const mimeType = match[1];
+    const base64 = match[2];
+
+    // Direct Google Gemini API (free tier: 15 RPM, 1500/day on gemini-2.0-flash)
+    const model = "gemini-2.0-flash";
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    const response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "HTTP-Referer": "https://lovable.dev",
-        "X-Title": "Steel Manager",
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "google/gemini-flash-1.5", 
-        messages: [{
-          role: "user",
-          content: [
-            { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: data.dataUrl } }
+        contents: [{
+          parts: [
+            { text: prompt },
+            { inline_data: { mime_type: mimeType, data: base64 } }
           ]
         }],
-        response_format: { type: "json_object" }
+        generationConfig: {
+          responseMimeType: "application/json",
+          temperature: 0.1,
+        }
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Connection Failed (${response.status}): Ensure OpenRouter Key is active.`);
+      throw new Error(`Gemini API failed (${response.status}): ${errorText.slice(0, 200)}`);
     }
 
     const resJson = await response.json();
-    const aiText = resJson.choices[0]?.message?.content;
-    
+    const aiText = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
+
     if (!aiText) throw new Error("AI returned no text. Check photo clarity.");
 
     let parsed: any;
     try {
       parsed = JSON.parse(aiText);
     } catch (e) {
-      // Manual JSON recovery
       const start = aiText.indexOf("{");
       const end = aiText.lastIndexOf("}") + 1;
       parsed = JSON.parse(aiText.substring(start, end));
     }
 
-    // RUN THE BRAIN (Logical Matching)
     const catalog = data.catalog ?? [];
     const processedItems = (parsed.items || []).map((it: any) => ({
       raw_name: String(it.raw_name),
