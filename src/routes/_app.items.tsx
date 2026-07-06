@@ -31,7 +31,6 @@ import {
   History,
   ArrowLeftRight 
 } from "lucide-react";
-// ... (rest of imports remain same)
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -67,12 +66,18 @@ const ALL_COLS: { key: ColKey; label: string }[] = [
 ];
 const DEFAULT_PDF_COLS: ColKey[] = ["available_qty", "last_purchase_rate"];
 
+// UPGRADED CART ITEM
 type CartItem = {
   id: string;
   name: string;
   rate: number;
   sectionName: string;
   qty?: string;
+  gauge_diff: number;
+  today: number;
+  sauda: number | null;
+  available_qty: number;
+  last_purchase_rate: string | number | null;
 };
 
 export const Route = createFileRoute("/_app/items")({
@@ -132,7 +137,7 @@ function ItemsPage() {
     enabled: !!historyItem,
   });
 
-  // NEW: Fetch last 10 activities (ledger)
+  // Fetch last 10 activities (ledger)
   const itemLedger = useQuery({
     queryKey: ["item_ledger", ledgerItem?.id],
     queryFn: async () => {
@@ -234,7 +239,18 @@ function ItemsPage() {
       if (isSelected) {
         return prev.filter((i) => i.id !== item.id);
       }
-      return [...prev, { id: item.id, name: item.name, rate: item.party, sectionName, qty: "" }];
+      return [...prev, { 
+        id: item.id, 
+        name: item.name, 
+        rate: item.party, 
+        sectionName, 
+        qty: "",
+        gauge_diff: item.gauge_diff,
+        today: item.today,
+        sauda: item.sauda,
+        available_qty: item.available_qty,
+        last_purchase_rate: item.last_purchase_rate
+      }];
     });
   };
 
@@ -244,6 +260,37 @@ function ItemsPage() {
 
   const updateCartQty = (id: string, qty: string) => {
     setCart((prev) => prev.map((i) => (i.id === id ? { ...i, qty } : i)));
+  };
+
+  // --- TEXT COPY / DOWNLOAD HELPER ---
+  const getFormattedCartText = () => {
+    return cart
+      .map((item, idx) => `${idx + 1}. ${item.name} - ${item.qty || "1 pc"}@${Number(item.rate).toFixed(0)}`)
+      .join("\n");
+  };
+
+  const handleCopyText = async () => {
+    if (cart.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(getFormattedCartText());
+      toast.success("Cart formatted text copied to clipboard!");
+    } catch (err) {
+      toast.error("Failed to copy text");
+    }
+  };
+
+  const handleDownloadText = () => {
+    if (cart.length === 0) return;
+    const textContent = getFormattedCartText();
+    const blob = new Blob([textContent], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `Quote_${partyName || "Export"}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const handleExportCartPDF = () => {
@@ -486,12 +533,12 @@ function ItemsPage() {
                 )}
               </Button>
             </SheetTrigger>
-            <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
+            <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
               <SheetHeader>
                 <SheetTitle className="flex items-center gap-2">
-                  <ReceiptText className="h-5 w-5" /> Quotation Cart
+                  <ReceiptText className="h-5 w-5" /> Quotation Cart & Verification
                 </SheetTitle>
-                <SheetDescription>Adjust details for export.</SheetDescription>
+                <SheetDescription>Double-check current matrix rates before exporting.</SheetDescription>
               </SheetHeader>
               
               <div className="py-6 space-y-6">
@@ -509,8 +556,16 @@ function ItemsPage() {
                   <div className="text-center py-10 text-muted-foreground text-sm">Your cart is empty.</div>
                 ) : (
                   <div className="space-y-4">
-                    <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Selected Items</div>
-                    
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                        Selected Items ({cart.length})
+                      </div>
+                      <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={handleCopyText}>
+                        <FileText className="h-3 w-3" /> Copy Text Format
+                      </Button>
+                    </div>
+
+                    {/* HIDDEN CONTAINER FOR IMAGE EXPORT (CLEAN VIEW ONLY) */}
                     <div className="absolute left-[-9999px] top-0">
                       <div ref={cartRef} className="p-8 w-[600px] bg-white text-slate-950">
                         <div className="flex justify-between items-end mb-6 border-b-2 border-slate-900 pb-4">
@@ -544,38 +599,63 @@ function ItemsPage() {
                       </div>
                     </div>
 
+                    {/* PREVIEW CARDS WITH FULL MATRIX DETAILS FOR DOUBLE-CHECKING */}
                     <div className="space-y-3">
                       {cart.map((item) => (
-                        <div key={item.id} className="flex flex-col gap-2 p-3 border rounded-lg bg-muted/30">
-                          <div className="flex items-center justify-between">
+                        <div key={item.id} className="flex flex-col gap-2 p-3 border rounded-lg bg-muted/20 shadow-xs">
+                          <div className="flex items-center justify-between border-b pb-2">
                             <div className="truncate pr-4">
-                                <p className="text-[10px] uppercase text-muted-foreground font-bold">{item.sectionName}</p>
-                                <p className="text-sm font-semibold truncate">{item.name}</p>
+                              <p className="text-[10px] uppercase text-muted-foreground font-bold">{item.sectionName}</p>
+                              <p className="text-sm font-semibold truncate">{item.name}</p>
                             </div>
                             <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => toggleCart(item, "")}>
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
+
+                          {/* INTERNAL VERIFICATION METRICS (NOT SHOWN IN EXPORT) */}
+                          <div className="grid grid-cols-5 gap-1 py-1.5 bg-muted/40 rounded px-2 text-[10px] text-center">
+                            <div>
+                              <span className="text-muted-foreground block">Gauge</span>
+                              <span className="font-mono font-medium">{item.gauge_diff > 0 ? `+${item.gauge_diff}` : item.gauge_diff}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground block">Today</span>
+                              <span className="font-mono font-semibold text-primary">₹{Number(item.today).toFixed(0)}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground block">Sauda</span>
+                              <span className="font-mono">{item.sauda !== null ? `₹${Number(item.sauda).toFixed(0)}` : "—"}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground block">Stock</span>
+                              <span className="font-mono">{Number(item.available_qty).toFixed(1)}t</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground block">Last Pur.</span>
+                              <span className="font-mono">{item.last_purchase_rate ? `₹${item.last_purchase_rate}` : "—"}</span>
+                            </div>
+                          </div>
                           
-                          <div className="grid grid-cols-2 gap-3 pt-2 border-t border-dashed">
-                             <div className="space-y-1">
-                                <Label className="text-[10px]">Quantity</Label>
-                                <Input 
-                                  placeholder="e.g. 5.5T" 
-                                  value={item.qty} 
-                                  onChange={(e) => updateCartQty(item.id, e.target.value)}
-                                  className="h-8 text-xs"
-                                />
-                             </div>
-                             <div className="space-y-1 text-right">
-                                <Label className="text-[10px]">Rate</Label>
-                                <Input 
-                                  type="number" 
-                                  value={item.rate} 
-                                  onChange={(e) => updateCartRate(item.id, Number(e.target.value))}
-                                  className="h-8 text-right font-mono font-bold text-xs"
-                                />
-                             </div>
+                          <div className="grid grid-cols-2 gap-3 pt-1">
+                            <div className="space-y-1">
+                              <Label className="text-[10px]">Quantity</Label>
+                              <Input 
+                                placeholder="e.g. 5 ton / 10 pc" 
+                                value={item.qty} 
+                                onChange={(e) => updateCartQty(item.id, e.target.value)}
+                                className="h-8 text-xs bg-background"
+                              />
+                            </div>
+                            <div className="space-y-1 text-right">
+                              <Label className="text-[10px] text-primary font-bold">Final Party Rate</Label>
+                              <Input 
+                                type="number" 
+                                value={item.rate} 
+                                onChange={(e) => updateCartRate(item.id, Number(e.target.value))}
+                                className="h-8 text-right font-mono font-bold text-xs bg-background border-primary/40"
+                              />
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -584,16 +664,19 @@ function ItemsPage() {
                 )}
               </div>
 
-              <SheetFooter className="flex-col gap-2 sm:flex-col mt-auto border-t pt-6">
-                <div className="grid grid-cols-2 gap-2 w-full">
-                  <Button disabled={cart.length === 0} onClick={handleExportCartPDF} variant="outline" className="gap-2">
-                    <Download className="h-4 w-4" /> PDF
+              <SheetFooter className="flex-col gap-2 sm:flex-col mt-auto border-t pt-4">
+                <div className="grid grid-cols-3 gap-2 w-full">
+                  <Button disabled={cart.length === 0} onClick={handleExportCartPDF} variant="outline" className="gap-1.5 text-xs">
+                    <Download className="h-3.5 w-3.5" /> PDF
                   </Button>
-                  <Button disabled={cart.length === 0} onClick={handleExportCartImage} className="gap-2">
-                    <ImageIcon className="h-4 w-4" /> Image
+                  <Button disabled={cart.length === 0} onClick={handleExportCartImage} variant="outline" className="gap-1.5 text-xs">
+                    <ImageIcon className="h-3.5 w-3.5" /> Image
+                  </Button>
+                  <Button disabled={cart.length === 0} onClick={handleDownloadText} className="gap-1.5 text-xs bg-slate-800 text-white hover:bg-slate-700">
+                    <FileText className="h-3.5 w-3.5" /> TXT
                   </Button>
                 </div>
-                <Button variant="ghost" className="w-full text-xs text-muted-foreground" onClick={() => setCart([])} disabled={cart.length === 0}>
+                <Button variant="ghost" className="w-full text-xs text-muted-foreground h-8" onClick={() => setCart([])} disabled={cart.length === 0}>
                   Clear Cart
                 </Button>
               </SheetFooter>
@@ -1047,7 +1130,7 @@ function ItemsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* --- NEW: ITEM ACTIVITY LEDGER (LAST 10) --- */}
+      {/* --- ITEM ACTIVITY LEDGER (LAST 10) --- */}
       <Dialog open={!!ledgerItem} onOpenChange={(open) => !open && setLedgerItem(null)}>
         <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
