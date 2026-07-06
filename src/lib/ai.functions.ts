@@ -16,121 +16,138 @@ export type ExtractedBill = {
 
 export type CatalogItem = { id: string; name: string; section?: string | null };
 
-/**
- * STEEL-LOGIC MATCHING ENGINE
- */
-function findSteelMatch(rawRead: string, catalog: CatalogItem[]): string | null {
-  if (!rawRead || catalog.length === 0) return null;
-
-  const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9.]/g, " ").replace(/\s+/g, " ").trim();
-  const rawClean = clean(rawRead);
-  const rawNums = rawClean.match(/\d+(\.\d+)?/g) || [];
-
-  let bestId: string | null = null;
-  let maxScore = 0;
-
-  for (const item of catalog) {
-    const itemName = clean(item.name);
-    const itemNums = itemName.match(/\d+(\.\d+)?/g) || [];
-    let score = 0;
-
-    const matchedNums = itemNums.filter((n: string) => (rawNums as string[]).includes(n));
-    score += (matchedNums.length * 40);
-
-    const rawTokens = rawClean.split(" ");
-    for (const token of rawTokens) {
-      if (token.length > 2 && itemName.includes(token)) score += 10;
-    }
-
-    if (itemName === rawClean) score += 200;
-
-    if (score > maxScore) {
-      maxScore = score;
-      bestId = item.id;
-    }
-  }
-
-  return maxScore >= 70 ? bestId : null;
-}
-
 export const extractBillFromImage = createServerFn({ method: "POST" })
-  .inputValidator((data: { dataUrl: string; type: "purchase" | "sale"; catalog?: CatalogItem[] }) => data)
+  .inputValidator(
+    (data: {
+      dataUrl: string;
+      type: "purchase" | "sale";
+      catalog?: CatalogItem[];
+    }) => data,
+  )
   .handler(async ({ data }): Promise<ExtractedBill> => {
-    const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) throw new Error("Add OPENROUTER_API_KEY (free key at openrouter.ai/keys).");
+    // 1. Switch to Groq API Key
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) {
+      throw new Error("GROQ_API_KEY missing. Please add it to your Lovable environment variables.");
+    }
 
-    const prompt = `You are a high-precision OCR for an Indian Steel Yard.
-Read this ${data.type} document (may be handwritten). Extract items, weights (Metric Tonnes), and rates.
+    // 2. Validate format (Groq requires image files, not raw PDFs)
+    const isPdf = data.dataUrl.startsWith("data:application/pdf");
+    if (isPdf) {
+      throw new Error(
+        "Groq Vision models require image inputs (PNG, JPEG, WEBP). Please upload or convert your bill to an image format."
+      );
+    }
 
-CRITICAL RULES:
-- QTY: Keep decimals (e.g. 0.350). ".450" is 0.450.
-- NAME: Extract the full size/description (e.g. "38x38x11kg").
-- TOTALS: Skip all sum/total rows.
-- FORMAT: Return ONLY valid JSON, no markdown.
+    // Cap catalog size to keep prompt small; the AI only needs enough to match.
+    const catalog = (data.catalog ?? []).slice(0, 600);
+    const catalogText = catalog.length
+      ? catalog
+          .map(
+            (c) =>
+              `${c.id} | ${c.name}${c.section ? ` [${c.section}]` : ""}`,
+          )
+          .join("\n")
+      : "(no catalog provided)";
 
-{
-  "vendor": "Name",
-  "bill_no": "Number",
-  "bill_date": "YYYY-MM-DD",
-  "items": [{ "raw_name": "Full Desc", "qty": 0.000, "rate": 0 }]
-}`;
+    const systemPrompt = `You extract structured data from Indian steel/iron trading bills. These are often HANDWRITTEN sale slips on a small pad, or printed purchase invoices. Reply with a single JSON object only. No markdown, no commentary.
 
-    // OpenRouter — free Gemini vision (best handwriting reader on the free tier)
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+FIELDS
+- vendor: party/shop name at top of the slip (string|null)
+- bill_no: bill number if visible (string|null)
+- bill_date: YYYY-MM-DD. Indian slips use DD/MM/YYYY or DD|MM|YYYY — convert.
+- items: array of {raw_name, qty, rate, matched_item_id}
+
+RULES FOR ITEMS
+1. Read every line in the items section. Do not skip lines.
+2. raw_name = the full item description as written, cleaned up (e.g. "C 90x45 (S.L)", "38x38x11kg", "2x1x15kg", "25 OD x 1.00mm", "HR PLATE 4x8 6mm"). Preserve size, thickness/gauge, and weight-per-piece written in brackets or after the size.
+3. qty is the NUMBER written on the right side of that line. In handwritten sale slips this is almost always in METRIC TONNES written as a decimal like 0.360, 0.220, 0.230 — keep it exactly as written (0.360, not 360). Do NOT include a totals/sum row (a line like "0.810" that is the sum of the rows above — usually with a bracket/curly brace joining them — is the total, skip it).
+4. rate: per-unit rate if written on the line. Handwritten sale slips usually DO NOT have per-item rates — set rate to 0 in that case. Do not invent a rate.
+5. Ignore signatures, phone numbers, vehicle numbers (like "MH40 / N3418"), stamps, and page numbers.
+
+STEEL NOTATION HINTS
+- "C 90x45" = Channel 90x45
+- "L 50x50x5" = Angle 50x50x5mm
+- "38x38x11kg" or "38x38 (11kg)" = 38x38 SQUARE pipe, 11 kg per piece
+- "2x1x15kg" = 2"x1" RECTANGULAR pipe, 15 kg per piece
+- "25 OD x 1.00mm" = 25 OD round pipe, 1.00 mm thickness
+- "(S.L)" / "(sl)" = Standard Length — keep it in raw_name
+
+ITEM MATCHING
+You are given a CATALOG of known items (id | name [section]). For each extracted line, set matched_item_id to the catalog id that best matches raw_name based on size, thickness, gauge, and weight-per-piece. Prefer exact size + weight matches. If no confident match, set matched_item_id to null.
+
+CATALOG:
+${catalogText}`;
+
+    // 3. Structure OpenAI/Groq compatible multimodal user content payload
+    const userContent = [
+      {
+        type: "text",
+        text: `Extract this ${data.type} bill. Follow the rules exactly. Return JSON: {"vendor":..., "bill_no":..., "bill_date":..., "items":[{"raw_name":..., "qty":..., "rate":..., "matched_item_id":...}]}`,
+      },
+      {
+        type: "image_url",
+        image_url: {
+          url: data.dataUrl, // Accepts data:image/jpeg;base64,... etc.
+        },
+      },
+    ];
+
+    // 4. Send request directly to Groq API endpoint
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "HTTP-Referer": "https://lovable.dev",
-        "X-Title": "Steel Manager",
         "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "google/gemini-2.0-flash-exp:free",
-        messages: [{
-          role: "user",
-          content: [
-            { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: data.dataUrl } }
-          ]
-        }],
-        response_format: { type: "json_object" }
+        model: "llama-3.2-11b-vision-preview", // Free tier high-speed vision model
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent },
+        ],
+        response_format: { type: "json_object" }, // Forces structured output JSON mode
+        temperature: 0.1, // Keeps extractions deterministic and accurate
       }),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      if (response.status === 429) throw new Error("Free daily limit hit. Wait a bit and retry.");
-      throw new Error(`AI failed (${response.status}): ${errorText.slice(0, 200)}`);
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Groq extraction failed: ${res.status} ${txt.slice(0, 200)}`);
     }
 
-    const resJson = await response.json();
-    const aiText = resJson.choices?.[0]?.message?.content;
+    const json = await res.json();
+    let raw = json.choices?.[0]?.message?.content ?? "{}";
+    
+    // Defensive sanitization: Clean markdown fences if the model wraps them accidentally
+    if (raw.startsWith("```json")) {
+      raw = raw.replace(/^```json\s*/, "").replace(/\s*```$/, "");
+    } else if (raw.startsWith("```")) {
+      raw = raw.replace(/^```\s*/, "").replace(/\s*```$/, "");
+    }
 
-    if (!aiText) throw new Error("AI returned no text. Check photo clarity.");
-
-
-
-    let parsed: any;
+    let parsed: ExtractedBill;
     try {
-      parsed = JSON.parse(aiText);
-    } catch (e) {
-      const start = aiText.indexOf("{");
-      const end = aiText.lastIndexOf("}") + 1;
-      parsed = JSON.parse(aiText.substring(start, end));
+      parsed = JSON.parse(raw.trim());
+    } catch {
+      throw new Error("Groq returned non-parseable JSON: " + raw.slice(0, 200));
     }
 
-    const catalog = data.catalog ?? [];
-    const processedItems = (parsed.items || []).map((it: any) => ({
-      raw_name: String(it.raw_name),
-      qty: Number(it.qty) || 0,
-      rate: Number(it.rate) || 0,
-      matched_item_id: findSteelMatch(String(it.raw_name), catalog)
-    }));
-
+    const validIds = new Set(catalog.map((c) => c.id));
+    const items = Array.isArray(parsed.items) ? parsed.items : [];
+    
     return {
       vendor: parsed.vendor ?? null,
       bill_no: parsed.bill_no ?? null,
       bill_date: parsed.bill_date ?? null,
-      items: processedItems
+      items: items.map((it) => ({
+        raw_name: String(it.raw_name ?? ""),
+        qty: Number(it.qty) || 0,
+        rate: Number(it.rate) || 0,
+        matched_item_id:
+          it.matched_item_id && validIds.has(it.matched_item_id)
+            ? it.matched_item_id
+            : null,
+      })),
     };
   });
