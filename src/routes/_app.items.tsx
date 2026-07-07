@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchFactories, fetchSections, fetchItems, fetchSaudas } from "@/lib/queries";
 import { Card, CardContent } from "@/components/ui/card";
-import html2canvas from "html2canvas";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -428,19 +427,34 @@ function ItemsPage() {
     doc.save(`Quote_${partyName || "Export"}.pdf`);
   };
 
-  const handleExportCartImage = async () => {
-    if (!cartRef.current || cart.length === 0) return;
+const handleExportCartImage = async () => {
+    if (!cartRef.current || cart.length === 0) {
+      toast.error("Cart is empty or not ready");
+      return;
+    }
+
+    const tid = toast.loading("Generating image...");
     try {
+      // Small delay to ensure browser has rendered the hidden div
+      await new Promise((r) => setTimeout(r, 100));
+
       const canvas = await html2canvas(cartRef.current, {
         backgroundColor: "#ffffff",
-        scale: 2,
+        scale: 2, // Higher quality
+        logging: false,
+        useCORS: true,
+        allowTaint: true,
       });
+
+      const dataUrl = canvas.toDataURL("image/png");
       const link = document.createElement("a");
-      link.download = `Quote_${partyName || "Export"}.png`;
-      link.href = canvas.toDataURL("image/png");
+      link.download = `Quote_${partyName || "Steel_Manager"}.png`;
+      link.href = dataUrl;
       link.click();
+      toast.success("Image downloaded", { id: tid });
     } catch (err) {
-      toast.error("Failed to generate image");
+      console.error("Capture error:", err);
+      toast.error("Failed to generate image", { id: tid });
     }
   };
 
@@ -678,40 +692,39 @@ function ItemsPage() {
                         </Button>
                       </div>
 
-                      {/* HIDDEN CONTAINER FOR IMAGE EXPORT */}
-                      <div className="absolute left-[-9999px] top-0">
-                        <div ref={cartRef} className="p-8 w-[600px] bg-white text-slate-950">
-                          <div className="flex justify-between items-end mb-6 border-b-2 border-slate-900 pb-4">
-                            <div>
-                              <h1 className="text-2xl font-black uppercase">Quotation</h1>
-                              <p className="text-sm font-bold text-slate-600">{partyName || "Valued Customer"}</p>
-                            </div>
-                            <p className="text-sm font-medium">{new Date().toLocaleDateString()}</p>
-                          </div>
-                          <table className="w-full text-left border-collapse">
-                            <thead>
-                              <tr className="border-b-2 border-slate-900 text-sm">
-                                <th className="py-2">Item Description</th>
-                                <th className="py-2 text-center">Qty</th>
-                                <th className="py-2 text-right">Rate</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {cart.map(item => (
-                                <tr key={item.id} className="border-b border-slate-200">
-                                  <td className="py-3 font-bold">{item.name}</td>
-                                  <td className="py-3 text-center">{item.qty || "—"}</td>
-                                  <td className="py-3 text-right font-mono font-bold">₹{Number(item.rate).toFixed(0)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                          <div className="mt-8 text-[10px] text-center text-slate-400 italic">
-                            This is a computer generated document.
-                          </div>
-                        </div>
-                      </div>
-
+                     {/* HIDDEN CONTAINER FOR IMAGE EXPORT - Modified for better capture */}
+          <div style={{ position: 'absolute', top: '-10000px', left: 0, zIndex: -1 }}>
+            <div ref={cartRef} style={{ width: '600px', padding: '40px', backgroundColor: '#ffffff', color: '#000000', fontFamily: 'sans-serif' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '30px', borderBottom: '2px solid #000000', paddingBottom: '15px' }}>
+                <div>
+                  <h1 style={{ fontSize: '24px', fontWeight: '900', textTransform: 'uppercase', margin: 0 }}>Quotation</h1>
+                  <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#444444', margin: '5px 0 0 0' }}>{partyName || "Valued Customer"}</p>
+                </div>
+                <p style={{ fontSize: '14px', margin: 0 }}>{new Date().toLocaleDateString()}</p>
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid #000000', textAlign: 'left', fontSize: '14px' }}>
+                    <th style={{ padding: '10px 0' }}>Item Description</th>
+                    <th style={{ padding: '10px 0', textAlign: 'center' }}>Qty</th>
+                    <th style={{ padding: '10px 0', textAlign: 'right' }}>Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cart.map(item => (
+                    <tr key={item.id} style={{ borderBottom: '1px solid #eeeeee' }}>
+                      <td style={{ padding: '12px 0', fontWeight: 'bold' }}>{item.name}</td>
+                      <td style={{ padding: '12px 0', textAlign: 'center' }}>{item.qty || "—"}</td>
+                      <td style={{ padding: '12px 0', textAlign: 'right', fontWeight: 'bold' }}>₹{Number(item.rate).toFixed(0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ marginTop: '40px', fontSize: '10px', textAlign: 'center', color: '#999999', fontStyle: 'italic' }}>
+                This is a computer generated document.
+              </div>
+            </div>
+          </div>
                       {/* PREVIEW CARDS */}
                       <div className="space-y-3">
                         {cart.map((item) => (
