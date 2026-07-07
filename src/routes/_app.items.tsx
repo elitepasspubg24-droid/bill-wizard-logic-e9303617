@@ -428,65 +428,55 @@ function ItemsPage() {
   };
 
 const handleExportCartImage = async () => {
-  console.log("Download button clicked"); // Check if this logs
-  if (cart.length === 0) {
-    toast.error("Cart is empty");
-    return;
-  }
-
-  const tid = toast.loading("Processing...");
+  const tid = toast.loading("Processing image...");
 
   try {
-    // 1. Get Library
+    // 1. Ensure library is loaded
     const win = window as any;
     if (!win.html2canvas) {
-      console.log("Loading html2canvas script...");
       await new Promise((resolve, reject) => {
         const script = document.createElement("script");
         script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
         script.onload = resolve;
-        script.onerror = () => reject(new Error("Script load failed"));
+        script.onerror = reject;
         document.head.appendChild(script);
       });
     }
 
-    // 2. Clone Element
-    const originalElement = document.getElementById("capture-area");
-    if (!originalElement) throw new Error("Capture area not found in DOM");
-    
-    console.log("Element found, cloning...");
-    const clone = originalElement.cloneNode(true) as HTMLElement;
-    
-    // 3. FORCE COLOR FIX (Removes oklch)
-    // We apply standard colors to every element to bypass the oklch error
-    const all = clone.querySelectorAll('*');
-    clone.style.backgroundColor = '#ffffff';
-    clone.style.color = '#000000';
-    all.forEach((el: any) => {
-        el.style.backgroundColor = 'transparent';
-        el.style.color = 'black';
-        el.style.borderColor = 'black';
-    });
+    const element = document.getElementById("capture-area");
+    if (!element) throw new Error("Capture area not found");
 
-    // 4. Position and Render
-    const wrapper = document.createElement("div");
-    wrapper.style.position = "fixed";
-    wrapper.style.top = "0";
-    wrapper.style.left = "0";
-    wrapper.style.zIndex = "-9999";
-    wrapper.appendChild(clone);
-    document.body.appendChild(wrapper);
-
-    console.log("Calling html2canvas...");
-    const canvas = await win.html2canvas(clone, {
+    // 2. Capture using the onclone hook (THIS IS THE FIX)
+    // The onclone hook allows us to manipulate the DOM before html2canvas renders it
+    const canvas = await win.html2canvas(element, {
       backgroundColor: "#ffffff",
       scale: 2,
+      useCORS: true,
+      logging: false,
+      onclone: (clonedDoc: Document) => {
+        const clonedElement = clonedDoc.getElementById("capture-area");
+        if (clonedElement) {
+          // This function recursively changes all 'oklch' colors to 'rgb'
+          // by asking the browser to calculate the final computed color.
+          const allElements = clonedElement.querySelectorAll("*");
+          allElements.forEach((el: any) => {
+            const style = window.getComputedStyle(el);
+            // Replace oklch by setting the style directly to the computed (resolved) color
+            if (style.backgroundColor.includes('oklch')) {
+               el.style.backgroundColor = style.backgroundColor;
+            }
+            if (style.color.includes('oklch')) {
+               el.style.color = style.color;
+            }
+            if (style.borderColor.includes('oklch')) {
+               el.style.borderColor = style.borderColor;
+            }
+          });
+        }
+      }
     });
-    
-    document.body.removeChild(wrapper);
-    console.log("Canvas generated, creating download link...");
 
-    // 5. Download
+    // 3. Trigger Download
     const dataUrl = canvas.toDataURL("image/png");
     const link = document.createElement("a");
     link.download = `Quote_${partyName || "Export"}.png`;
@@ -495,8 +485,8 @@ const handleExportCartImage = async () => {
 
     toast.success("Downloaded!", { id: tid });
   } catch (err: any) {
-    console.error("CRITICAL ERROR:", err); // Look here in the console!
-    toast.error(`Failed: ${err.message}`, { id: tid });
+    console.error("Critical Failure:", err);
+    toast.error(`Error: ${err.message}`, { id: tid });
   }
 };
   const openAddSection = () => {
