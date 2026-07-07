@@ -38,6 +38,43 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+// ─── Shared Helper to Sync Item Stock & Latest Rate ─────────────────────────
+async function syncItemStockAndRate(itemId: string) {
+  // 1. Calculate true available quantity from all bill_items history
+  const { data: allBillItems } = await supabase
+    .from("bill_items")
+    .select("qty, bills!inner(type)")
+    .eq("item_id", itemId);
+
+  let newQty = 0;
+  allBillItems?.forEach((bi: any) => {
+    if (bi.bills.type === "purchase") newQty += Number(bi.qty);
+    else newQty -= Number(bi.qty);
+  });
+
+  // 2. Find the most recent non-zero purchase rate by bill_date
+  const { data: latestPurchase } = await supabase
+    .from("bill_items")
+    .select("rate, bills!inner(bill_date, created_at)")
+    .eq("item_id", itemId)
+    .eq("bills.type", "purchase")
+    .gt("rate", 0) // Ignore bills with 0 rate
+    .order("bill_date", { referencedTable: 'bills', ascending: false })
+    .order("created_at", { referencedTable: 'bills', ascending: false })
+    .limit(1);
+
+  const lastRate = latestPurchase?.[0]?.rate ?? null;
+
+  // 3. Update the items table cache with absolute truth
+  await supabase
+    .from("items")
+    .update({ 
+      available_qty: newQty, 
+      last_purchase_rate: lastRate 
+    })
+    .eq("id", itemId);
+}
+
 // ─── Edit Dialog ────────────────────────────────────────────────────────────
 
 function EditBillDialog({
@@ -67,32 +104,20 @@ function EditBillDialog({
 
   const mut = useMutation({
     mutationFn: async () => {
-      // 1. Get original items to calculate deltas
-      const { data: originalItems } = await supabase
-        .from("bill_items")
-        .select("*")
-        .eq("bill_id", bill.id);
+      // 1. Identify all items that need refreshing (original items + new items)
+      const { data: originalItems } = await supabase.from("bill_items").select("item_id").eq("bill_id", bill.id);
+      const affectedItemIds = new Set<string>();
+      originalItems?.forEach(oi => { if(oi.item_id) affectedItemIds.add(oi.item_id); });
+      billItems.forEach(ni => { if(ni.item_id) affectedItemIds.add(ni.item_id); });
 
-      // Update bill header
+      // 2. Update bill header
       const { error: be } = await supabase
         .from("bills")
         .update({ vendor, bill_no: billNo, bill_date: billDate })
         .eq("id", bill.id);
       if (be) throw be;
 
-      // 2. Revert old stock changes
-      if (originalItems) {
-        for (const old of originalItems) {
-          if (!old.item_id) continue;
-          const { data: it } = await supabase.from("items").select("available_qty").eq("id", old.item_id).single();
-          if (it) {
-            const adjustment = bill.type === "purchase" ? -Number(old.qty) : Number(old.qty);
-            await supabase.from("items").update({ available_qty: Number(it.available_qty) + adjustment }).eq("id", old.item_id);
-          }
-        }
-      }
-
-      // 3. Update the bill_items table rows
+      // 3. Update the bill_items rows
       for (const bi of billItems) {
         if (bi.id) {
           const { error } = await supabase
@@ -103,29 +128,13 @@ function EditBillDialog({
         }
       }
 
-      // 4. Apply new stock changes and refresh Last Purchase Rates
-      for (const current of billItems) {
-        if (!current.item_id) continue;
-        const { data: it } = await supabase.from("items").select("available_qty").eq("id", current.item_id).single();
-        if (it) {
-          const adjustment = bill.type === "purchase" ? Number(current.qty) : -Number(current.qty);
-          const updatePayload: any = { available_qty: Number(it.available_qty) + adjustment };
-          
-          if (bill.type === "purchase") {
-             const { data: latest } = await supabase
-               .from("bill_items")
-               .select("rate, bills!inner(bill_date)")
-               .eq("item_id", current.item_id)
-               .order("bill_date", { referencedTable: 'bills', ascending: false })
-               .limit(1);
-             if (latest?.[0]) updatePayload.last_purchase_rate = latest[0].rate;
-          }
-          await supabase.from("items").update(updatePayload).eq("id", current.item_id);
-        }
+      // 4. Run the robust sync for every affected item to recalculate stock and latest rate
+      for (const id of Array.from(affectedItemIds)) {
+        await syncItemStockAndRate(id);
       }
     },
     onSuccess: () => {
-      toast.success("Bill and Inventory updated");
+      toast.success("Bill and Inventory synced");
       qc.invalidateQueries({ queryKey: ["bills"] });
       qc.invalidateQueries({ queryKey: ["items"] });
       onClose();
@@ -239,40 +248,21 @@ function DeleteBillDialog({
 
   const mut = useMutation({
     mutationFn: async () => {
-      const { data: billItems } = await supabase.from("bill_items").select("*").eq("bill_id", bill.id);
+      const { data: billItems } = await supabase.from("bill_items").select("item_id").eq("bill_id", bill.id);
+      const affectedItemIds = Array.from(new Set(billItems?.map(bi => bi.item_id).filter(Boolean) as string[]));
 
-      if (billItems?.length) {
-        for (const bi of billItems) {
-          if (!bi.item_id) continue;
-          const { data: item } = await supabase.from("items").select("available_qty").eq("id", bi.item_id).single();
-          if (!item) continue;
-          
-          const qty = Number(bi.qty) || 0;
-          const newQty = bill.type === "purchase" ? Number(item.available_qty) - qty : Number(item.available_qty) + qty;
-          
-          const updatePayload: any = { available_qty: newQty };
-
-          if (bill.type === "purchase") {
-            const { data: nextLatest } = await supabase
-              .from("bill_items")
-              .select("rate")
-              .eq("item_id", bi.item_id)
-              .neq("bill_id", bill.id) 
-              .order("id", { ascending: false })
-              .limit(1);
-            updatePayload.last_purchase_rate = nextLatest?.[0]?.rate ?? null;
-          }
-
-          await supabase.from("items").update(updatePayload).eq("id", bi.item_id);
-        }
-      }
-
+      // 1. Delete the child records and the bill
       await supabase.from("bill_items").delete().eq("bill_id", bill.id);
       const { error } = await supabase.from("bills").delete().eq("id", bill.id);
       if (error) throw error;
+
+      // 2. Recalculate everything for affected items to fix stock and rate history
+      for (const id of affectedItemIds) {
+        await syncItemStockAndRate(id);
+      }
     },
     onSuccess: () => {
-      toast.success("Bill deleted and stock reversed");
+      toast.success("Bill deleted and stock/rates recalculated");
       qc.invalidateQueries({ queryKey: ["bills"] });
       qc.invalidateQueries({ queryKey: ["items"] });
       onClose();
@@ -287,7 +277,7 @@ function DeleteBillDialog({
           <AlertDialogTitle>Delete Bill?</AlertDialogTitle>
           <AlertDialogDescription>
             Permanently delete bill <strong>{bill.bill_no ?? bill.id.slice(0, 8)}</strong>
-            {bill.vendor ? ` from ${bill.vendor}` : ""} and <strong>reverse</strong> stock changes.
+            {bill.vendor ? ` from ${bill.vendor}` : ""} and <strong>recalculate</strong> stock/rates.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -384,12 +374,14 @@ function BillsPage() {
         if (up.error) throw up.error;
       }
 
+      // 1. Save Bill Header
       const { data: bill, error: be } = await supabase
         .from("bills")
         .insert({ type, vendor: draft.vendor, bill_no: draft.bill_no, bill_date: draft.bill_date, file_path: path })
         .select().single();
       if (be) throw be;
 
+      // 2. Save Item Rows
       const rows = draft.items.map((it, i) => ({
         bill_id: bill.id,
         item_id: matches[i],
@@ -402,19 +394,13 @@ function BillsPage() {
         if (error) throw error;
       }
 
-      for (let i = 0; i < draft.items.length; i++) {
-        const id = matches[i];
-        if (!id) continue;
-        const { data: it } = await supabase.from("items").select("available_qty").eq("id", id).single();
-        const qty = Number(draft.items[i].qty) || 0;
-        const rate = Number(draft.items[i].rate) || 0;
-        const newQty = Number(it?.available_qty || 0) + (type === "purchase" ? qty : -qty);
-        await supabase.from("items").update({
-          available_qty: newQty,
-          ...(type === "purchase" && rate > 0 ? { last_purchase_rate: rate } : {}),
-        }).eq("id", id);
+      // 3. Robust Recalculation for all matched items
+      const affectedItemIds = Array.from(new Set(matches.filter(Boolean) as string[]));
+      for (const id of affectedItemIds) {
+        await syncItemStockAndRate(id);
       }
 
+      // 4. Handle Sauda lifting
       if (linkSaudaId && linkSaudaId !== "none") {
         const sauda = (saudas.data as any[])?.find((s) => s.id === linkSaudaId);
         const billQty = rows.reduce((a, r) => a + Number(r.qty || 0), 0);
@@ -429,7 +415,7 @@ function BillsPage() {
       }
     },
     onSuccess: () => {
-      toast.success("Bill saved and Stock updated");
+      toast.success("Bill saved and Inventory synced");
       setDraft(null); setFile(null); setMatches([]); setLinkSaudaId("none");
       qc.invalidateQueries({ queryKey: ["bills"] });
       qc.invalidateQueries({ queryKey: ["items"] });
