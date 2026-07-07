@@ -428,88 +428,25 @@ function ItemsPage() {
   };
 
 const handleExportCartImage = async () => {
-  if (cart.length === 0) {
-    toast.error("Cart is empty");
-    return;
-  }
+  const area = document.getElementById("capture-area");
+  if (!area) return;
 
-  const tid = toast.loading("Loading image engine...");
-
-  try {
-    // --- THE BYPASS: Load html2canvas directly from the web without npm ---
-    let html2canvasFn = (window as any).html2canvas;
-
-    if (!html2canvasFn) {
-      await new Promise((resolve, reject) => {
-        const script = document.createElement("script");
-        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-        script.onload = resolve;
-        script.onerror = () => reject(new Error("Failed to load html2canvas from CDN"));
-        document.head.appendChild(script);
-      });
-      // Grab the function after the script finishes loading
-      html2canvasFn = (window as any).html2canvas;
+  // 1. RECURSIVELY CLEAN: Force all nested elements to stop using oklch
+  // This is a "brute force" hack to ensure no oklch strings exist
+  const allElements = area.querySelectorAll('*');
+  allElements.forEach((el) => {
+    const style = window.getComputedStyle(el);
+    // If the style contains oklch, override it with a solid color
+    if (style.backgroundColor.includes('oklch')) {
+      (el as HTMLElement).style.backgroundColor = '#ffffff'; 
     }
-
-    if (!html2canvasFn) {
-      throw new Error("Could not initialize image engine.");
+    if (style.color.includes('oklch')) {
+      (el as HTMLElement).style.color = '#000000';
     }
-    // --- END BYPASS ---
+  });
 
-    toast.loading("Generating image...", { id: tid });
-
-    const originalElement = document.getElementById("capture-area");
-    if (!originalElement) {
-      throw new Error("Capture area not found");
-    }
-
-    // 1. Get the hidden wrapper div (the one with top: -2000px)
-    const wrapper = originalElement.parentElement;
-    if (!wrapper) throw new Error("Wrapper not found");
-
-    // 2. Save the original styles so we can put it back
-    const originalTop = wrapper.style.top;
-    const originalZIndex = wrapper.style.zIndex;
-
-    // 3. Bring it into the viewport, but hide it BEHIND everything else
-    wrapper.style.top = "0px";
-    wrapper.style.zIndex = "-9999";
-
-    // 4. Wait a tiny bit for the browser to render it
-    await new Promise(resolve => setTimeout(resolve, 150));
-
-    // 5. Take the picture using our newly downloaded web function!
-    const canvas = await html2canvasFn(originalElement, {
-      backgroundColor: "#ffffff",
-      scale: 2,
-      useCORS: true,
-      logging: false
-    });
-
-    // 6. Instantly put it back off-screen
-    wrapper.style.top = originalTop;
-    wrapper.style.zIndex = originalZIndex;
-
-    // 7. Trigger Download
-    const dataUrl = canvas.toDataURL("image/png");
-    const link = document.createElement("a");
-    link.download = `Quote_${partyName || "Customer"}.png`;
-    link.href = dataUrl;
-    link.click();
-
-    toast.success("Image downloaded successfully!", { id: tid });
-  } catch (err: any) {
-    console.error("Capture error:", err);
-    
-    // Safety net: ensure it goes back off-screen even if it crashes
-    const wrapper = document.getElementById("capture-area")?.parentElement;
-    if (wrapper) {
-        wrapper.style.top = "-2000px";
-    }
-
-    // This will print the EXACT error to your screen if it fails
-    toast.error(`Error: ${err.message || "Failed to render"}`, { id: tid });
-  }
+  // Now run your html2canvas function...
+  // (The rest of your code goes here)
 };
   const openAddSection = () => {
     setSectionForm({ id: "", name: "", factory_id: factories.data?.[0]?.id || "" });
