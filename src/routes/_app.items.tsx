@@ -433,53 +433,64 @@ const handleExportCartImage = async () => {
     return;
   }
 
-  const tid = toast.loading("Generating image...");
-  let stagingArea: HTMLDivElement | null = null;
+  const tid = toast.loading("Loading image engine...");
 
   try {
+    // --- THE BYPASS: Load html2canvas directly from the web without npm ---
+    let html2canvasFn = (window as any).html2canvas;
+
+    if (!html2canvasFn) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+        script.onload = resolve;
+        script.onerror = () => reject(new Error("Failed to load html2canvas from CDN"));
+        document.head.appendChild(script);
+      });
+      // Grab the function after the script finishes loading
+      html2canvasFn = (window as any).html2canvas;
+    }
+
+    if (!html2canvasFn) {
+      throw new Error("Could not initialize image engine.");
+    }
+    // --- END BYPASS ---
+
+    toast.loading("Generating image...", { id: tid });
+
     const originalElement = document.getElementById("capture-area");
     if (!originalElement) {
-      throw new Error("Capture area not found in DOM");
+      throw new Error("Capture area not found");
     }
 
-    // STEP 1: Deep clone the element
-    const clone = originalElement.cloneNode(true) as HTMLElement;
-    
-    // STEP 2: Create a staging wrapper
-    // We place it at top 0, left 0 so it is inside the viewport (forces layout).
-    // We use opacity: 0 so it is completely invisible to the user.
-    stagingArea = document.createElement("div");
-    stagingArea.style.position = "fixed";
-    stagingArea.style.top = "0";
-    stagingArea.style.left = "0";
-    stagingArea.style.opacity = "0"; 
-    stagingArea.style.pointerEvents = "none";
-    stagingArea.style.zIndex = "-9999";
-    
-    // Force the clone to behave normally and strictly enforce the 600px width
-    clone.style.display = "block";
-    clone.style.width = "600px";
+    // 1. Get the hidden wrapper div (the one with top: -2000px)
+    const wrapper = originalElement.parentElement;
+    if (!wrapper) throw new Error("Wrapper not found");
 
-    stagingArea.appendChild(clone);
-    document.body.appendChild(stagingArea);
+    // 2. Save the original styles so we can put it back
+    const originalTop = wrapper.style.top;
+    const originalZIndex = wrapper.style.zIndex;
 
-    // STEP 3: THE MAGIC BULLET - Wait for the browser to paint the DOM
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    // 3. Bring it into the viewport, but hide it BEHIND everything else
+    wrapper.style.top = "0px";
+    wrapper.style.zIndex = "-9999";
 
-    // Sanity check: If height is 0, html2canvas will crash.
-    if (clone.offsetHeight === 0) {
-      throw new Error("Browser layout failed (Height is 0).");
-    }
+    // 4. Wait a tiny bit for the browser to render it
+    await new Promise(resolve => setTimeout(resolve, 150));
 
-    // STEP 4: Capture the visible (but transparent) clone
-    const canvas = await html2canvas(clone, {
+    // 5. Take the picture using our newly downloaded web function!
+    const canvas = await html2canvasFn(originalElement, {
       backgroundColor: "#ffffff",
-      scale: 2, // High resolution
+      scale: 2,
       useCORS: true,
-      logging: false, // Set to true if you ever need to debug in the console
+      logging: false
     });
 
-    // STEP 5: Trigger Download
+    // 6. Instantly put it back off-screen
+    wrapper.style.top = originalTop;
+    wrapper.style.zIndex = originalZIndex;
+
+    // 7. Trigger Download
     const dataUrl = canvas.toDataURL("image/png");
     const link = document.createElement("a");
     link.download = `Quote_${partyName || "Customer"}.png`;
@@ -489,14 +500,15 @@ const handleExportCartImage = async () => {
     toast.success("Image downloaded successfully!", { id: tid });
   } catch (err: any) {
     console.error("Capture error:", err);
-    // Print the ACTUAL error message to the toast so we know exactly what broke
-    toast.error(`System error: ${err.message || "Failed to render image"}`, { id: tid });
-  } finally {
-    // STEP 6: Guaranteed Cleanup
-    // Even if it crashes, we ensure the invisible div is deleted from the body
-    if (stagingArea && document.body.contains(stagingArea)) {
-      document.body.removeChild(stagingArea);
+    
+    // Safety net: ensure it goes back off-screen even if it crashes
+    const wrapper = document.getElementById("capture-area")?.parentElement;
+    if (wrapper) {
+        wrapper.style.top = "-2000px";
     }
+
+    // This will print the EXACT error to your screen if it fails
+    toast.error(`Error: ${err.message || "Failed to render"}`, { id: tid });
   }
 };
   const openAddSection = () => {
