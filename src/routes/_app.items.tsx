@@ -428,44 +428,60 @@ function ItemsPage() {
   };
 
 const handleExportCartImage = async () => {
-    if (cart.length === 0) {
-      toast.error("Cart is empty");
-      return;
+  if (cart.length === 0) {
+    toast.error("Cart is empty");
+    return;
+  }
+
+  const tid = toast.loading("Generating image...");
+  try {
+    const originalElement = document.getElementById('capture-area');
+    
+    if (!originalElement) {
+      throw new Error("Capture area not found");
     }
 
-    const tid = toast.loading("Generating image...");
-    try {
-      // Step 1: Find the element by ID instead of just the Ref
-      const element = document.getElementById('capture-area');
-      
-      if (!element) {
-        throw new Error("Capture area not found");
-      }
+    // STEP 1: Clone the node. 
+    // This removes the element from the Radix Sheet's overflow constraints.
+    const clone = originalElement.cloneNode(true) as HTMLElement;
+    
+    // STEP 2: Create a temporary container attached directly to the document body.
+    const wrapper = document.createElement("div");
+    wrapper.style.position = "absolute";
+    wrapper.style.top = "0";
+    // Hide it horizontally off-screen to avoid scroll/height collapse issues
+    wrapper.style.left = "-9999px"; 
+    wrapper.appendChild(clone);
+    document.body.appendChild(wrapper);
 
-      // Step 2: Take the picture
-      const canvas = await html2canvas(element, {
-        backgroundColor: "#ffffff",
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        // This ensures it captures even if it's off-screen
-        width: 600,
-        height: element.offsetHeight
-      });
+    // STEP 3: Take the picture from the newly appended clone
+    const canvas = await html2canvas(clone, {
+      backgroundColor: "#ffffff",
+      scale: 2,
+      useCORS: true,
+      logging: false,
+      width: 600, // Forces the hardcoded width you set in inline styles
+      // Reset scroll position overrides to prevent cropping
+      scrollY: 0,
+      scrollX: 0
+    });
 
-      // Step 3: Download
-      const dataUrl = canvas.toDataURL("image/png");
-      const link = document.createElement("a");
-      link.download = `Quote_${partyName || "Steel_Report"}.png`;
-      link.href = dataUrl;
-      link.click();
-      
-      toast.success("Image downloaded", { id: tid });
-    } catch (err) {
-      console.error("Capture error:", err);
-      toast.error("System error: Could not generate image", { id: tid });
-    }
-  };
+    // STEP 4: Immediately clean up the temporary DOM node
+    document.body.removeChild(wrapper);
+
+    // STEP 5: Trigger Download
+    const dataUrl = canvas.toDataURL("image/png");
+    const link = document.createElement("a");
+    link.download = `Quote_${partyName || "Steel_Report"}.png`;
+    link.href = dataUrl;
+    link.click();
+    
+    toast.success("Image downloaded", { id: tid });
+  } catch (err) {
+    console.error("Capture error:", err);
+    toast.error("System error: Could not generate image", { id: tid });
+  }
+};
   const openAddSection = () => {
     setSectionForm({ id: "", name: "", factory_id: factories.data?.[0]?.id || "" });
     setIsSectionDialogOpen(true);
