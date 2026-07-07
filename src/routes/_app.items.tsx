@@ -428,62 +428,42 @@ function ItemsPage() {
   };
 
 const handleExportCartImage = async () => {
-  const tid = toast.loading("Processing...");
+  const tid = toast.loading("Switching to modern engine...");
 
   try {
-    const originalElement = document.getElementById("capture-area");
-    if (!originalElement) throw new Error("Capture area not found");
-
-    // 1. Load library
+    // 1. Load the modern library from CDN
     const win = window as any;
-    if (!win.html2canvas) {
-        await new Promise((resolve, reject) => {
-            const script = document.createElement("script");
-            script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-            script.onload = resolve;
-            script.onerror = reject;
-            document.head.appendChild(script);
-        });
+    if (!win.htmlToImage) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js";
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+      });
     }
 
-    // 2. Capture with "Clean Room" strategy
-    const canvas = await win.html2canvas(originalElement, {
-      backgroundColor: "#ffffff",
-      scale: 2,
-      useCORS: true,
-      logging: false,
-      onclone: (clonedDoc: Document) => {
-        const root = clonedDoc.getElementById("capture-area");
-        if (!root) return;
+    const element = document.getElementById("capture-area");
+    if (!element) throw new Error("Capture area not found");
 
-        // Force the root container to be white and black text
-        root.style.backgroundColor = "#ffffff";
-        root.style.color = "#000000";
-
-        // Deep Clean: Strip every element of its CSS classes (kills Tailwind/oklch)
-        const all = root.querySelectorAll("*");
-        all.forEach((el: any) => {
-            // Apply computed styles as INLINE styles (this converts oklch to rgb)
-            const style = window.getComputedStyle(el);
-            el.style.backgroundColor = style.backgroundColor;
-            el.style.color = style.color;
-            el.style.borderColor = style.borderColor;
-            
-            // KILL THE CLASSES: This removes the Tailwind connection that holds the oklch variables
-            el.className = ""; 
-        });
-      }
+    // 2. Generate Image using the modern library
+    // This library is MUCH better at handling oklch/Tailwind v4
+    const dataUrl = await win.htmlToImage.toPng(element, {
+      backgroundColor: '#ffffff',
+      quality: 1,
+      pixelRatio: 2,
     });
 
+    // 3. Download
     const link = document.createElement("a");
     link.download = "Quote.png";
-    link.href = canvas.toDataURL("image/png");
+    link.href = dataUrl;
     link.click();
 
-    toast.success("Downloaded!", { id: tid });
+    toast.success("Downloaded successfully!", { id: tid });
   } catch (err: any) {
-    console.error(err);
-    toast.error("Failed: System error.");
+    console.error("Critical Failure:", err);
+    toast.error("System Error: Use the Print Button instead.");
   }
 };
   const openAddSection = () => {
