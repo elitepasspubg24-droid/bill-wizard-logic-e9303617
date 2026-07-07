@@ -428,25 +428,76 @@ function ItemsPage() {
   };
 
 const handleExportCartImage = async () => {
-  const area = document.getElementById("capture-area");
-  if (!area) return;
+  console.log("Download button clicked"); // Check if this logs
+  if (cart.length === 0) {
+    toast.error("Cart is empty");
+    return;
+  }
 
-  // 1. RECURSIVELY CLEAN: Force all nested elements to stop using oklch
-  // This is a "brute force" hack to ensure no oklch strings exist
-  const allElements = area.querySelectorAll('*');
-  allElements.forEach((el) => {
-    const style = window.getComputedStyle(el);
-    // If the style contains oklch, override it with a solid color
-    if (style.backgroundColor.includes('oklch')) {
-      (el as HTMLElement).style.backgroundColor = '#ffffff'; 
-    }
-    if (style.color.includes('oklch')) {
-      (el as HTMLElement).style.color = '#000000';
-    }
-  });
+  const tid = toast.loading("Processing...");
 
-  // Now run your html2canvas function...
-  // (The rest of your code goes here)
+  try {
+    // 1. Get Library
+    const win = window as any;
+    if (!win.html2canvas) {
+      console.log("Loading html2canvas script...");
+      await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+        script.onload = resolve;
+        script.onerror = () => reject(new Error("Script load failed"));
+        document.head.appendChild(script);
+      });
+    }
+
+    // 2. Clone Element
+    const originalElement = document.getElementById("capture-area");
+    if (!originalElement) throw new Error("Capture area not found in DOM");
+    
+    console.log("Element found, cloning...");
+    const clone = originalElement.cloneNode(true) as HTMLElement;
+    
+    // 3. FORCE COLOR FIX (Removes oklch)
+    // We apply standard colors to every element to bypass the oklch error
+    const all = clone.querySelectorAll('*');
+    clone.style.backgroundColor = '#ffffff';
+    clone.style.color = '#000000';
+    all.forEach((el: any) => {
+        el.style.backgroundColor = 'transparent';
+        el.style.color = 'black';
+        el.style.borderColor = 'black';
+    });
+
+    // 4. Position and Render
+    const wrapper = document.createElement("div");
+    wrapper.style.position = "fixed";
+    wrapper.style.top = "0";
+    wrapper.style.left = "0";
+    wrapper.style.zIndex = "-9999";
+    wrapper.appendChild(clone);
+    document.body.appendChild(wrapper);
+
+    console.log("Calling html2canvas...");
+    const canvas = await win.html2canvas(clone, {
+      backgroundColor: "#ffffff",
+      scale: 2,
+    });
+    
+    document.body.removeChild(wrapper);
+    console.log("Canvas generated, creating download link...");
+
+    // 5. Download
+    const dataUrl = canvas.toDataURL("image/png");
+    const link = document.createElement("a");
+    link.download = `Quote_${partyName || "Export"}.png`;
+    link.href = dataUrl;
+    link.click();
+
+    toast.success("Downloaded!", { id: tid });
+  } catch (err: any) {
+    console.error("CRITICAL ERROR:", err); // Look here in the console!
+    toast.error(`Failed: ${err.message}`, { id: tid });
+  }
 };
   const openAddSection = () => {
     setSectionForm({ id: "", name: "", factory_id: factories.data?.[0]?.id || "" });
