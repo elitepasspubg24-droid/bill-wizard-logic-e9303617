@@ -428,65 +428,62 @@ function ItemsPage() {
   };
 
 const handleExportCartImage = async () => {
-  const tid = toast.loading("Processing image...");
+  const tid = toast.loading("Processing...");
 
   try {
-    // 1. Ensure library is loaded
+    const originalElement = document.getElementById("capture-area");
+    if (!originalElement) throw new Error("Capture area not found");
+
+    // 1. Load library
     const win = window as any;
     if (!win.html2canvas) {
-      await new Promise((resolve, reject) => {
-        const script = document.createElement("script");
-        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-        script.onload = resolve;
-        script.onerror = reject;
-        document.head.appendChild(script);
-      });
+        await new Promise((resolve, reject) => {
+            const script = document.createElement("script");
+            script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
     }
 
-    const element = document.getElementById("capture-area");
-    if (!element) throw new Error("Capture area not found");
-
-    // 2. Capture using the onclone hook (THIS IS THE FIX)
-    // The onclone hook allows us to manipulate the DOM before html2canvas renders it
-    const canvas = await win.html2canvas(element, {
+    // 2. Capture with "Clean Room" strategy
+    const canvas = await win.html2canvas(originalElement, {
       backgroundColor: "#ffffff",
       scale: 2,
       useCORS: true,
       logging: false,
       onclone: (clonedDoc: Document) => {
-        const clonedElement = clonedDoc.getElementById("capture-area");
-        if (clonedElement) {
-          // This function recursively changes all 'oklch' colors to 'rgb'
-          // by asking the browser to calculate the final computed color.
-          const allElements = clonedElement.querySelectorAll("*");
-          allElements.forEach((el: any) => {
+        const root = clonedDoc.getElementById("capture-area");
+        if (!root) return;
+
+        // Force the root container to be white and black text
+        root.style.backgroundColor = "#ffffff";
+        root.style.color = "#000000";
+
+        // Deep Clean: Strip every element of its CSS classes (kills Tailwind/oklch)
+        const all = root.querySelectorAll("*");
+        all.forEach((el: any) => {
+            // Apply computed styles as INLINE styles (this converts oklch to rgb)
             const style = window.getComputedStyle(el);
-            // Replace oklch by setting the style directly to the computed (resolved) color
-            if (style.backgroundColor.includes('oklch')) {
-               el.style.backgroundColor = style.backgroundColor;
-            }
-            if (style.color.includes('oklch')) {
-               el.style.color = style.color;
-            }
-            if (style.borderColor.includes('oklch')) {
-               el.style.borderColor = style.borderColor;
-            }
-          });
-        }
+            el.style.backgroundColor = style.backgroundColor;
+            el.style.color = style.color;
+            el.style.borderColor = style.borderColor;
+            
+            // KILL THE CLASSES: This removes the Tailwind connection that holds the oklch variables
+            el.className = ""; 
+        });
       }
     });
 
-    // 3. Trigger Download
-    const dataUrl = canvas.toDataURL("image/png");
     const link = document.createElement("a");
-    link.download = `Quote_${partyName || "Export"}.png`;
-    link.href = dataUrl;
+    link.download = "Quote.png";
+    link.href = canvas.toDataURL("image/png");
     link.click();
 
     toast.success("Downloaded!", { id: tid });
   } catch (err: any) {
-    console.error("Critical Failure:", err);
-    toast.error(`Error: ${err.message}`, { id: tid });
+    console.error(err);
+    toast.error("Failed: System error.");
   }
 };
   const openAddSection = () => {
