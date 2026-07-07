@@ -434,52 +434,69 @@ const handleExportCartImage = async () => {
   }
 
   const tid = toast.loading("Generating image...");
+  let stagingArea: HTMLDivElement | null = null;
+
   try {
-    const originalElement = document.getElementById('capture-area');
-    
+    const originalElement = document.getElementById("capture-area");
     if (!originalElement) {
-      throw new Error("Capture area not found");
+      throw new Error("Capture area not found in DOM");
     }
 
-    // STEP 1: Clone the node. 
-    // This removes the element from the Radix Sheet's overflow constraints.
+    // STEP 1: Deep clone the element
     const clone = originalElement.cloneNode(true) as HTMLElement;
     
-    // STEP 2: Create a temporary container attached directly to the document body.
-    const wrapper = document.createElement("div");
-    wrapper.style.position = "absolute";
-    wrapper.style.top = "0";
-    // Hide it horizontally off-screen to avoid scroll/height collapse issues
-    wrapper.style.left = "-9999px"; 
-    wrapper.appendChild(clone);
-    document.body.appendChild(wrapper);
+    // STEP 2: Create a staging wrapper
+    // We place it at top 0, left 0 so it is inside the viewport (forces layout).
+    // We use opacity: 0 so it is completely invisible to the user.
+    stagingArea = document.createElement("div");
+    stagingArea.style.position = "fixed";
+    stagingArea.style.top = "0";
+    stagingArea.style.left = "0";
+    stagingArea.style.opacity = "0"; 
+    stagingArea.style.pointerEvents = "none";
+    stagingArea.style.zIndex = "-9999";
+    
+    // Force the clone to behave normally and strictly enforce the 600px width
+    clone.style.display = "block";
+    clone.style.width = "600px";
 
-    // STEP 3: Take the picture from the newly appended clone
+    stagingArea.appendChild(clone);
+    document.body.appendChild(stagingArea);
+
+    // STEP 3: THE MAGIC BULLET - Wait for the browser to paint the DOM
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    // Sanity check: If height is 0, html2canvas will crash.
+    if (clone.offsetHeight === 0) {
+      throw new Error("Browser layout failed (Height is 0).");
+    }
+
+    // STEP 4: Capture the visible (but transparent) clone
     const canvas = await html2canvas(clone, {
       backgroundColor: "#ffffff",
-      scale: 2,
+      scale: 2, // High resolution
       useCORS: true,
-      logging: false,
-      width: 600, // Forces the hardcoded width you set in inline styles
-      // Reset scroll position overrides to prevent cropping
-      scrollY: 0,
-      scrollX: 0
+      logging: false, // Set to true if you ever need to debug in the console
     });
-
-    // STEP 4: Immediately clean up the temporary DOM node
-    document.body.removeChild(wrapper);
 
     // STEP 5: Trigger Download
     const dataUrl = canvas.toDataURL("image/png");
     const link = document.createElement("a");
-    link.download = `Quote_${partyName || "Steel_Report"}.png`;
+    link.download = `Quote_${partyName || "Customer"}.png`;
     link.href = dataUrl;
     link.click();
-    
-    toast.success("Image downloaded", { id: tid });
-  } catch (err) {
+
+    toast.success("Image downloaded successfully!", { id: tid });
+  } catch (err: any) {
     console.error("Capture error:", err);
-    toast.error("System error: Could not generate image", { id: tid });
+    // Print the ACTUAL error message to the toast so we know exactly what broke
+    toast.error(`System error: ${err.message || "Failed to render image"}`, { id: tid });
+  } finally {
+    // STEP 6: Guaranteed Cleanup
+    // Even if it crashes, we ensure the invisible div is deleted from the body
+    if (stagingArea && document.body.contains(stagingArea)) {
+      document.body.removeChild(stagingArea);
+    }
   }
 };
   const openAddSection = () => {
