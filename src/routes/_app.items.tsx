@@ -428,36 +428,44 @@ function ItemsPage() {
   };
 
 const handleExportCartImage = async () => {
-    if (!cartRef.current || cart.length === 0) {
-      toast.error("Cart is empty or not ready");
+    if (cart.length === 0) {
+      toast.error("Cart is empty");
       return;
     }
 
     const tid = toast.loading("Generating image...");
     try {
-      // Small delay to ensure browser has rendered the hidden div
-      await new Promise((r) => setTimeout(r, 100));
+      // Step 1: Find the element by ID instead of just the Ref
+      const element = document.getElementById('capture-area');
+      
+      if (!element) {
+        throw new Error("Capture area not found");
+      }
 
-      const canvas = await html2canvas(cartRef.current, {
+      // Step 2: Take the picture
+      const canvas = await html2canvas(element, {
         backgroundColor: "#ffffff",
-        scale: 2, // Higher quality
-        logging: false,
+        scale: 2,
         useCORS: true,
-        allowTaint: true,
+        logging: false,
+        // This ensures it captures even if it's off-screen
+        width: 600,
+        height: element.offsetHeight
       });
 
+      // Step 3: Download
       const dataUrl = canvas.toDataURL("image/png");
       const link = document.createElement("a");
-      link.download = `Quote_${partyName || "Steel_Manager"}.png`;
+      link.download = `Quote_${partyName || "Steel_Report"}.png`;
       link.href = dataUrl;
       link.click();
+      
       toast.success("Image downloaded", { id: tid });
     } catch (err) {
       console.error("Capture error:", err);
-      toast.error("Failed to generate image", { id: tid });
+      toast.error("System error: Could not generate image", { id: tid });
     }
   };
-
   const openAddSection = () => {
     setSectionForm({ id: "", name: "", factory_id: factories.data?.[0]?.id || "" });
     setIsSectionDialogOpen(true);
@@ -691,37 +699,42 @@ const handleExportCartImage = async () => {
                           <FileText className="h-3 w-3" /> Copy Text Format
                         </Button>
                       </div>
-
-                     {/* HIDDEN CONTAINER FOR IMAGE EXPORT - Modified for better capture */}
-          <div style={{ position: 'absolute', top: '-10000px', left: 0, zIndex: -1 }}>
-            <div ref={cartRef} style={{ width: '600px', padding: '40px', backgroundColor: '#ffffff', color: '#000000', fontFamily: 'sans-serif' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '30px', borderBottom: '2px solid #000000', paddingBottom: '15px' }}>
+{/* HIDDEN CONTAINER FOR IMAGE EXPORT */}
+          <div style={{ position: 'fixed', top: '-2000px', left: '0', zIndex: -100 }}>
+            <div id="capture-area" ref={cartRef} style={{ width: '600px', padding: '40px', backgroundColor: '#ffffff', color: '#000000', fontFamily: 'Arial, sans-serif' }}>
+              <div style={{ borderBottom: '3px solid #1e293b', paddingBottom: '20px', marginBottom: '30px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                 <div>
-                  <h1 style={{ fontSize: '24px', fontWeight: '900', textTransform: 'uppercase', margin: 0 }}>Quotation</h1>
-                  <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#444444', margin: '5px 0 0 0' }}>{partyName || "Valued Customer"}</p>
+                  <h1 style={{ margin: 0, fontSize: '28px', fontWeight: 'bold', color: '#0f172a', textTransform: 'uppercase' }}>Quotation</h1>
+                  <p style={{ margin: '5px 0 0 0', fontSize: '16px', color: '#475569' }}>Party: <b>{partyName || "Valued Customer"}</b></p>
                 </div>
-                <p style={{ fontSize: '14px', margin: 0 }}>{new Date().toLocaleDateString()}</p>
+                <div style={{ textAlign: 'right', fontSize: '14px', color: '#64748b' }}>
+                  Date: {new Date().toLocaleDateString()}
+                </div>
               </div>
+
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
-                  <tr style={{ borderBottom: '2px solid #000000', textAlign: 'left', fontSize: '14px' }}>
-                    <th style={{ padding: '10px 0' }}>Item Description</th>
-                    <th style={{ padding: '10px 0', textAlign: 'center' }}>Qty</th>
-                    <th style={{ padding: '10px 0', textAlign: 'right' }}>Rate</th>
+                  <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }}>
+                    <th style={{ padding: '12px', textAlign: 'left', fontSize: '14px' }}>Item Description</th>
+                    <th style={{ padding: '12px', textAlign: 'center', fontSize: '14px' }}>Qty</th>
+                    <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px' }}>Rate</th>
                   </tr>
                 </thead>
                 <tbody>
                   {cart.map(item => (
-                    <tr key={item.id} style={{ borderBottom: '1px solid #eeeeee' }}>
-                      <td style={{ padding: '12px 0', fontWeight: 'bold' }}>{item.name}</td>
-                      <td style={{ padding: '12px 0', textAlign: 'center' }}>{item.qty || "—"}</td>
-                      <td style={{ padding: '12px 0', textAlign: 'right', fontWeight: 'bold' }}>₹{Number(item.rate).toFixed(0)}</td>
+                    <tr key={item.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                      <td style={{ padding: '14px 12px', fontSize: '15px', fontWeight: '500' }}>{item.name}</td>
+                      <td style={{ padding: '14px 12px', textAlign: 'center', fontSize: '15px' }}>{item.qty || "—"}</td>
+                      <td style={{ padding: '14px 12px', textAlign: 'right', fontSize: '15px', fontWeight: 'bold' }}>₹{Number(item.rate).toFixed(0)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <div style={{ marginTop: '40px', fontSize: '10px', textAlign: 'center', color: '#999999', fontStyle: 'italic' }}>
-                This is a computer generated document.
+
+              <div style={{ marginTop: '50px', paddingTop: '20px', borderTop: '1px solid #e2e8f0', textAlign: 'center' }}>
+                <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>
+                  Thank you for your business. This is a computer generated quote.
+                </p>
               </div>
             </div>
           </div>
