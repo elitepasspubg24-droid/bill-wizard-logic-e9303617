@@ -31,7 +31,9 @@ import {
   History,
   ArrowLeftRight,
   ScanLine,
-  Loader2
+  Loader2,
+  Share2,
+  Phone
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -56,7 +58,6 @@ import {
 } from "@/components/ui/sheet";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import html2canvas from "html2canvas";
 import { useServerFn } from "@tanstack/react-start";
 import { extractBillFromImage } from "@/lib/ai.functions";
 
@@ -71,7 +72,6 @@ const ALL_COLS: { key: ColKey; label: string }[] = [
 ];
 const DEFAULT_PDF_COLS: ColKey[] = ["available_qty", "last_purchase_rate"];
 
-// UPGRADED CART ITEM WITH FACTORY & SAUDA PREVIEW METADATA
 type CartItem = {
   id: string;
   name: string;
@@ -126,6 +126,11 @@ function ItemsPage() {
   const [partyName, setPartyName] = useState("");
   const cartRef = useRef<HTMLDivElement>(null);
 
+  // --- BROADCAST STATE ---
+  const [isBroadcastOpen, setIsBroadcastOpen] = useState(false);
+  const [manualRates, setManualRates] = useState<Record<string, number>>({});
+  const broadcastRef = useRef<HTMLDivElement>(null);
+
   // --- AI SCAN STATE ---
   const [isExtracting, setIsExtracting] = useState(false);
   const [isScanEnquiryOpen, setIsScanEnquiryOpen] = useState(false);
@@ -146,7 +151,6 @@ function ItemsPage() {
     last_purchase_rate: "",
   });
 
-  // Fetch last 3 purchases
   const itemHistory = useQuery({
     queryKey: ["item_history", historyItem?.id],
     queryFn: async () => {
@@ -162,7 +166,6 @@ function ItemsPage() {
     enabled: !!historyItem,
   });
 
-  // Fetch last 10 activities (ledger)
   const itemLedger = useQuery({
     queryKey: ["item_ledger", ledgerItem?.id],
     queryFn: async () => {
@@ -309,7 +312,6 @@ function ItemsPage() {
       const newCartItems: CartItem[] = [];
       let matchedCount = 0;
 
-      // Find matched items in our current context-aware grouped view to get correct rates
       result.items.forEach((extracted) => {
         if (!extracted.matched_item_id) return;
         
@@ -365,7 +367,6 @@ function ItemsPage() {
     setCart((prev) => prev.map((i) => (i.id === id ? { ...i, qty } : i)));
   };
 
-  // --- CLEAN TEXT COPY / DOWNLOAD HELPER ---
   const getFormattedCartText = () => {
     return cart
       .map((item, idx) => {
@@ -427,45 +428,38 @@ function ItemsPage() {
     doc.save(`Quote_${partyName || "Export"}.pdf`);
   };
 
-const handleExportCartImage = async () => {
-  const tid = toast.loading("Switching to modern engine...");
+  const handleExportImage = async (elementId: string) => {
+    const tid = toast.loading("Generating broadcast image...");
+    try {
+      const win = window as any;
+      if (!win.htmlToImage) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js";
+          script.onload = resolve; script.onerror = reject;
+          document.head.appendChild(script);
+        });
+      }
 
-  try {
-    // 1. Load the modern library from CDN
-    const win = window as any;
-    if (!win.htmlToImage) {
-      await new Promise((resolve, reject) => {
-        const script = document.createElement("script");
-        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js";
-        script.onload = resolve;
-        script.onerror = reject;
-        document.head.appendChild(script);
+      const element = document.getElementById(elementId);
+      if (!element) throw new Error("Capture area not found");
+
+      const dataUrl = await win.htmlToImage.toPng(element, {
+        backgroundColor: '#ffffff',
+        quality: 1,
+        pixelRatio: 2,
       });
+
+      const link = document.createElement("a");
+      link.download = elementId === "capture-area" ? "Quote.png" : "Daily_Rate_List.png";
+      link.href = dataUrl;
+      link.click();
+      toast.success("Ready for broadcast!", { id: tid });
+    } catch (err: any) {
+      toast.error("Generation failed. Use manual screenshot.", { id: tid });
     }
+  };
 
-    const element = document.getElementById("capture-area");
-    if (!element) throw new Error("Capture area not found");
-
-    // 2. Generate Image using the modern library
-    // This library is MUCH better at handling oklch/Tailwind v4
-    const dataUrl = await win.htmlToImage.toPng(element, {
-      backgroundColor: '#ffffff',
-      quality: 1,
-      pixelRatio: 2,
-    });
-
-    // 3. Download
-    const link = document.createElement("a");
-    link.download = "Quote.png";
-    link.href = dataUrl;
-    link.click();
-
-    toast.success("Downloaded successfully!", { id: tid });
-  } catch (err: any) {
-    console.error("Critical Failure:", err);
-    toast.error("System Error: Use the Print Button instead.");
-  }
-};
   const openAddSection = () => {
     setSectionForm({ id: "", name: "", factory_id: factories.data?.[0]?.id || "" });
     setIsSectionDialogOpen(true);
@@ -648,14 +642,128 @@ const handleExportCartImage = async () => {
     doc.save("Items_Report.pdf");
   };
 
+  // --- TEMPLATE LOGIC HELPERS ---
+  const getSectionByName = (name: string) => {
+    return grouped.find(g => g.section.name.toLowerCase().includes(name.toLowerCase()));
+  };
+
   return (
     <div className="w-full space-y-4 pb-20">
       <div className="flex items-center justify-between border-b pb-3 gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           <h2 className="text-2xl font-bold">Items Matrix</h2>
           
-          {/* CART & AI SCAN BUTTONS */}
           <div className="flex items-center gap-2">
+            {/* BROADCAST TEMPLATE BUTTON */}
+            <Dialog open={isBroadcastOpen} onOpenChange={setIsBroadcastOpen}>
+              <DialogTrigger asChild>
+                <Button variant="default" size="sm" className="h-9 gap-1.5 bg-emerald-600 hover:bg-emerald-700">
+                  <Share2 className="h-4 w-4" /> Broadcast
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-[95vw] lg:max-w-6xl max-h-[95vh] overflow-y-auto p-0 border-none bg-slate-100">
+                <div className="sticky top-0 z-50 bg-white border-b p-4 flex items-center justify-between shadow-sm">
+                   <div>
+                     <DialogTitle className="text-xl font-bold">WhatsApp Broadcast Preview</DialogTitle>
+                     <p className="text-xs text-muted-foreground">Click on any <span className="font-bold">NC</span> value to manually edit before downloading.</p>
+                   </div>
+                   <div className="flex gap-2">
+                      <Button variant="outline" onClick={() => setManualRates({})}>Reset Rates</Button>
+                      <Button onClick={() => handleExportImage("broadcast-area")} className="bg-emerald-600 hover:bg-emerald-700 gap-2">
+                        <Download className="h-4 w-4" /> Download Broadcast Image
+                      </Button>
+                   </div>
+                </div>
+
+                <div className="flex justify-center p-4">
+                  {/* START OF THE EXACT TEMPLATE */}
+                  <div id="broadcast-area" style={{ width: '1000px', backgroundColor: '#f3f4f6', color: '#334155', fontFamily: 'serif' }} className="p-8">
+                      {/* Header */}
+                      <div className="bg-[#8ec2c2] p-4 text-center border-b-4 border-slate-400 mb-6">
+                        <h1 className="text-4xl font-bold tracking-widest text-slate-900 uppercase">MAA BHAVANI STEEL, NAGPUR</h1>
+                      </div>
+
+                      {/* Main Grid: 4 Columns */}
+                      <div className="grid grid-cols-4 gap-4">
+                        
+                        {/* COL 1: Angle, Channel */}
+                        <div className="space-y-4">
+                          <BroadcastSection 
+                            title="MS ANGLE" 
+                            data={getSectionByName("angle")} 
+                            manualRates={manualRates} 
+                            setManualRates={setManualRates} 
+                          />
+                          <BroadcastSection 
+                            title="MS CHANNEL" 
+                            data={getSectionByName("channel")} 
+                            manualRates={manualRates} 
+                            setManualRates={setManualRates} 
+                          />
+                        </div>
+
+                        {/* COL 2: Beam, Bar, Round, Plate */}
+                        <div className="space-y-4">
+                          <BroadcastSection title="I BEAM" data={getSectionByName("beam")} manualRates={manualRates} setManualRates={setManualRates} />
+                          <BroadcastSection title="MS SQ BAR" data={getSectionByName("square bar")} manualRates={manualRates} setManualRates={setManualRates} />
+                          <BroadcastSection title="MS ROUND BAR" data={getSectionByName("round bar")} manualRates={manualRates} setManualRates={setManualRates} />
+                          <BroadcastSection title="HR PLATE/SHEET" data={getSectionByName("plate")} manualRates={manualRates} setManualRates={setManualRates} />
+                        </div>
+
+                        {/* COL 3: Flat, CHQ */}
+                        <div className="space-y-4">
+                          <BroadcastSection title="MS FLAT" data={getSectionByName("flat")} manualRates={manualRates} setManualRates={setManualRates} />
+                          <BroadcastSection title="CHQ PLATE" data={getSectionByName("chq")} manualRates={manualRates} setManualRates={setManualRates} />
+                        </div>
+
+                        {/* COL 4: Pipes */}
+                        <div className="space-y-4">
+                          <div className="border border-slate-400">
+                             <div className="bg-[#b9d7d9] text-center font-bold text-sm py-1 border-b border-slate-400 uppercase tracking-tighter">MS PIPE</div>
+                             <table className="w-full text-[12px] bg-white">
+                               <thead className="bg-[#d1e5e7] border-b border-slate-400 font-bold uppercase text-[10px]">
+                                 <tr>
+                                   <th className="p-1 border-r border-slate-400 text-left">ITEM</th>
+                                   <th className="p-1 border-r border-slate-400 w-12">BILL</th>
+                                   <th className="p-1 w-12">NC</th>
+                                 </tr>
+                               </thead>
+                               <tbody>
+                                 <tr className="border-b border-slate-200">
+                                   <td className="p-1 pl-2 font-bold border-r border-slate-400">PIPE BASIC</td>
+                                   <td className="p-1 text-center border-r border-slate-400">—</td>
+                                   <td className="p-1 text-center font-bold">
+                                      {getSectionByName("pipe")?.activeFacBasic || "—"}
+                                   </td>
+                                 </tr>
+                               </tbody>
+                             </table>
+                          </div>
+                          <BroadcastSection title="HEAVY PIPE" data={getSectionByName("pipe")} manualRates={manualRates} setManualRates={setManualRates} />
+                        </div>
+                      </div>
+
+                      {/* Footer Info */}
+                      <div className="mt-8 pt-4 border-t border-slate-300">
+                         <div className="grid grid-cols-2 text-sm italic text-slate-600 gap-y-1">
+                            <div className="flex items-center gap-2"><ArrowLeftRight className="h-3.5 w-3.5 text-blue-500" /> Ex-Butibori (Nagpur) Rates.</div>
+                            <div className="flex items-center gap-2"><Plus className="h-3.5 w-3.5 text-amber-500" /> Specials Sizes Available on Request</div>
+                            <div className="flex items-center gap-2"><Truck className="h-3.5 w-3.5 text-slate-500" /> Loading Extra.</div>
+                            <div className="flex items-center gap-2 font-bold text-slate-900"><ReceiptText className="h-3.5 w-3.5 text-orange-600" /> GST Extra on Bill Rate.</div>
+                         </div>
+                         <div className="mt-4 text-[13px] text-slate-500">
+                            (Note: A delay penalty of 40/MT per day applies to late settlements).
+                         </div>
+                         <div className="mt-6 flex items-center justify-center gap-6 text-slate-900 font-bold border-t border-slate-200 pt-4">
+                            <div className="flex items-center gap-2">Connect with us: <Phone className="h-4 w-4 text-emerald-600" /> 9423102235 | 9423104435 | 9665154631</div>
+                         </div>
+                      </div>
+                  </div>
+                  {/* END OF TEMPLATE */}
+                </div>
+              </DialogContent>
+            </Dialog>
+
             <Sheet>
               <SheetTrigger asChild>
                 <Button variant="outline" size="sm" className="relative h-9 gap-2">
@@ -699,46 +807,44 @@ const handleExportCartImage = async () => {
                           <FileText className="h-3 w-3" /> Copy Text Format
                         </Button>
                       </div>
-{/* HIDDEN CONTAINER FOR IMAGE EXPORT */}
-          <div style={{ position: 'fixed', top: '-2000px', left: '0', zIndex: -100 }}>
-            <div id="capture-area" ref={cartRef} style={{ width: '600px', padding: '40px', backgroundColor: '#ffffff', color: '#000000', fontFamily: 'Arial, sans-serif' }}>
-              <div style={{ borderBottom: '3px solid #1e293b', paddingBottom: '20px', marginBottom: '30px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                <div>
-                  <h1 style={{ margin: 0, fontSize: '28px', fontWeight: 'bold', color: '#0f172a', textTransform: 'uppercase' }}>Quotation</h1>
-                  <p style={{ margin: '5px 0 0 0', fontSize: '16px', color: '#475569' }}>Party: <b>{partyName || "Valued Customer"}</b></p>
-                </div>
-                <div style={{ textAlign: 'right', fontSize: '14px', color: '#64748b' }}>
-                  Date: {new Date().toLocaleDateString()}
-                </div>
-              </div>
 
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }}>
-                    <th style={{ padding: '12px', textAlign: 'left', fontSize: '14px' }}>Item Description</th>
-                    <th style={{ padding: '12px', textAlign: 'center', fontSize: '14px' }}>Qty</th>
-                    <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px' }}>Rate</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cart.map(item => (
-                    <tr key={item.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                      <td style={{ padding: '14px 12px', fontSize: '15px', fontWeight: '500' }}>{item.name}</td>
-                      <td style={{ padding: '14px 12px', textAlign: 'center', fontSize: '15px' }}>{item.qty || "—"}</td>
-                      <td style={{ padding: '14px 12px', textAlign: 'right', fontSize: '15px', fontWeight: 'bold' }}>₹{Number(item.rate).toFixed(0)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      <div style={{ position: 'fixed', top: '-2000px', left: '0', zIndex: -100 }}>
+                        <div id="capture-area" style={{ width: '600px', padding: '40px', backgroundColor: '#ffffff', color: '#000000', fontFamily: 'Arial, sans-serif' }}>
+                          <div style={{ borderBottom: '3px solid #1e293b', paddingBottom: '20px', marginBottom: '30px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                            <div>
+                              <h1 style={{ margin: 0, fontSize: '28px', fontWeight: 'bold', color: '#0f172a', textTransform: 'uppercase' }}>Quotation</h1>
+                              <p style={{ margin: '5px 0 0 0', fontSize: '16px', color: '#475569' }}>Party: <b>{partyName || "Valued Customer"}</b></p>
+                            </div>
+                            <div style={{ textAlign: 'right', fontSize: '14px', color: '#64748b' }}>
+                              Date: {new Date().toLocaleDateString()}
+                            </div>
+                          </div>
+                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }}>
+                                <th style={{ padding: '12px', textAlign: 'left', fontSize: '14px' }}>Item Description</th>
+                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '14px' }}>Qty</th>
+                                <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px' }}>Rate</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {cart.map(item => (
+                                <tr key={item.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                                  <td style={{ padding: '14px 12px', fontSize: '15px', fontWeight: '500' }}>{item.name}</td>
+                                  <td style={{ padding: '14px 12px', textAlign: 'center', fontSize: '15px' }}>{item.qty || "—"}</td>
+                                  <td style={{ padding: '14px 12px', textAlign: 'right', fontSize: '15px', fontWeight: 'bold' }}>₹{Number(item.rate).toFixed(0)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          <div style={{ marginTop: '50px', paddingTop: '20px', borderTop: '1px solid #e2e8f0', textAlign: 'center' }}>
+                            <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>
+                              Thank you for your business. This is a computer generated quote.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
 
-              <div style={{ marginTop: '50px', paddingTop: '20px', borderTop: '1px solid #e2e8f0', textAlign: 'center' }}>
-                <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>
-                  Thank you for your business. This is a computer generated quote.
-                </p>
-              </div>
-            </div>
-          </div>
-                      {/* PREVIEW CARDS */}
                       <div className="space-y-3">
                         {cart.map((item) => (
                           <div key={item.id} className="flex flex-col gap-2 p-3 border rounded-lg bg-muted/20 shadow-xs">
@@ -751,7 +857,6 @@ const handleExportCartImage = async () => {
                                 <Trash2 className="h-3.5 w-3.5" />
                               </Button>
                             </div>
-
                             <div className="text-[11px] bg-muted/50 p-2 rounded border border-border/60 space-y-1">
                               <div className="flex justify-between items-center text-foreground">
                                 <span className="text-muted-foreground font-medium">Today Rate Config:</span>
@@ -764,7 +869,6 @@ const handleExportCartImage = async () => {
                                 </span>
                               </div>
                             </div>
-
                             <div className="grid grid-cols-5 gap-1 py-1.5 bg-muted/40 rounded px-2 text-[10px] text-center">
                               <div><span className="text-muted-foreground block">Gauge</span><span className="font-mono font-medium">{item.gauge_diff > 0 ? `+${item.gauge_diff}` : item.gauge_diff}</span></div>
                               <div><span className="text-muted-foreground block">Today</span><span className="font-mono font-semibold text-primary">₹{Number(item.today).toFixed(0)}</span></div>
@@ -772,7 +876,6 @@ const handleExportCartImage = async () => {
                               <div><span className="text-muted-foreground block">Stock</span><span className="font-mono">{Number(item.available_qty).toFixed(1)}t</span></div>
                               <div><span className="text-muted-foreground block">Last Pur.</span><span className="font-mono">{item.last_purchase_rate ? `₹${item.last_purchase_rate}` : "—"}</span></div>
                             </div>
-                            
                             <div className="grid grid-cols-2 gap-3 pt-1">
                               <div className="space-y-1"><Label className="text-[10px]">Quantity</Label><Input placeholder="Optional" value={item.qty} onChange={(e) => updateCartQty(item.id, e.target.value)} className="h-8 text-xs bg-background" /></div>
                               <div className="space-y-1 text-right"><Label className="text-[10px] text-primary font-bold">Party Rate (₹)</Label><Input type="number" value={item.rate} onChange={(e) => updateCartRate(item.id, Number(e.target.value))} className="h-8 text-right font-mono font-bold text-xs bg-background border-primary/40" /></div>
@@ -787,7 +890,7 @@ const handleExportCartImage = async () => {
                 <SheetFooter className="flex-col gap-2 sm:flex-col mt-auto border-t pt-4">
                   <div className="grid grid-cols-3 gap-2 w-full">
                     <Button disabled={cart.length === 0} onClick={handleExportCartPDF} variant="outline" className="gap-1.5 text-xs"><Download className="h-3.5 w-3.5" /> PDF</Button>
-                    <Button disabled={cart.length === 0} onClick={handleExportCartImage} variant="outline" className="gap-1.5 text-xs"><ImageIcon className="h-3.5 w-3.5" /> Image</Button>
+                    <Button disabled={cart.length === 0} onClick={() => handleExportImage("capture-area")} variant="outline" className="gap-1.5 text-xs"><ImageIcon className="h-3.5 w-3.5" /> Image</Button>
                     <Button disabled={cart.length === 0} onClick={handleDownloadText} className="gap-1.5 text-xs bg-slate-800 text-white"><FileText className="h-3.5 w-3.5" /> TXT</Button>
                   </div>
                   <Button variant="ghost" className="w-full text-xs text-muted-foreground h-8" onClick={() => setCart([])} disabled={cart.length === 0}>Clear Cart</Button>
@@ -795,7 +898,6 @@ const handleExportCartImage = async () => {
               </SheetContent>
             </Sheet>
 
-            {/* AI ENQUIRY SCANNER DIALOG */}
             <Dialog open={isScanEnquiryOpen} onOpenChange={setIsScanEnquiryOpen}>
               <DialogTrigger asChild>
                 <Button variant="outline" size="sm" className="h-9 gap-1.5 text-blue-600 border-blue-200 hover:bg-blue-50">
@@ -895,7 +997,6 @@ const handleExportCartImage = async () => {
         </div>
       </div>
 
-      {/* 📱 MOBILE VIEW: Compact Table */}
       <div className="block md:hidden space-y-4">
         {grouped.map(({ section, activeTodayFactory, activeFacBasic, activeFacAdder, activePartyAdder, topSauda, rows }) => (
           <div
@@ -1020,7 +1121,6 @@ const handleExportCartImage = async () => {
         ))}
       </div>
 
-      {/* 💻 DESKTOP VIEW: Spacious Table */}
       <div className="hidden md:block space-y-4">
         {grouped.map(({ section, activeTodayFactory, activeFacBasic, activeFacAdder, activePartyAdder, topSauda, rows }) => (
           <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20 overflow-visible">
@@ -1151,7 +1251,6 @@ const handleExportCartImage = async () => {
         ))}
       </div>
 
-      {/* --- DIALOGS (Section/Item) --- */}
       <Dialog open={isSectionDialogOpen} onOpenChange={setIsSectionDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -1230,7 +1329,6 @@ const handleExportCartImage = async () => {
         </DialogContent>
       </Dialog>
 
-      {/* --- LAST 3 PURCHASES DIALOG --- */}
       <Dialog open={!!historyItem} onOpenChange={(open) => !open && setHistoryItem(null)}>
         <DialogContent className="sm:max-w-[450px]">
           <DialogHeader>
@@ -1263,94 +1361,3 @@ const handleExportCartImage = async () => {
                       {p.purchase_date ? new Date(p.purchase_date).toLocaleDateString() : "—"}
                     </div>
                     <div className="col-span-3 text-right font-mono font-bold text-primary">
-                      ₹{Number(p.rate).toFixed(0)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setHistoryItem(null)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* --- ITEM ACTIVITY LEDGER (LAST 10) --- */}
-      <Dialog open={!!ledgerItem} onOpenChange={(open) => !open && setLedgerItem(null)}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ArrowLeftRight className="h-5 w-5 text-primary" /> Stock Activity (Last 10)
-            </DialogTitle>
-            <DialogDescription>
-              Detailed flow for <strong className="text-foreground">{ledgerItem?.name}</strong>.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="py-2">
-            {itemLedger.isLoading ? (
-              <div className="text-center py-8 text-sm text-muted-foreground">Loading history...</div>
-            ) : !itemLedger.data || itemLedger.data.length === 0 ? (
-              <div className="text-center py-8 text-sm text-muted-foreground italic border rounded-lg">No activity recorded via bills.</div>
-            ) : (
-              <div className="border rounded-md overflow-hidden divide-y">
-                <div className="grid grid-cols-12 bg-muted/60 p-2.5 text-[10px] uppercase font-bold tracking-wider text-muted-foreground">
-                  <div className="col-span-3">Date</div>
-                  <div className="col-span-5">Party / Vendor</div>
-                  <div className="col-span-4 text-right">Quantity</div>
-                </div>
-                {itemLedger.data.map((entry: any, idx: number) => {
-                  const bill = entry.bills;
-                  const isPurchase = bill.type === "purchase";
-                  return (
-                    <div key={idx} className="grid grid-cols-12 p-2.5 text-xs items-center hover:bg-muted/10 transition-colors">
-                      <div className="col-span-3 text-muted-foreground font-medium">
-                        {bill.bill_date ? new Date(bill.bill_date).toLocaleDateString("en-IN", { day: '2-digit', month: 'short' }) : "—"}
-                      </div>
-                      <div className="col-span-5 font-semibold truncate pr-2 text-slate-800" title={bill.vendor}>
-                        {bill.vendor || "Direct Entry"}
-                      </div>
-                      <div className="col-span-4 text-right">
-                        <span className={`font-mono font-bold px-1.5 py-0.5 rounded-sm ${isPurchase ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>
-                          {isPurchase ? "+" : "-"}{Number(entry.qty).toFixed(2)} MT
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setLedgerItem(null)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button size="icon" className="fixed bottom-6 right-6 h-12 w-12 rounded-full shadow-xl"><List /></Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-56" align="end" side="top">
-          <DropdownMenuLabel>Jump to Section</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {grouped.map(({ section }) => (
-            <DropdownMenuItem
-              key={section.id}
-              onSelect={() => {
-                setTimeout(() => {
-                  document.getElementById(`section-${section.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }, 50);
-              }}
-            >
-              {section.name}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-  );
-}
