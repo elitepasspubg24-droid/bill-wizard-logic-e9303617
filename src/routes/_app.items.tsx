@@ -33,7 +33,8 @@ import {
   ScanLine,
   Loader2,
   Share2,
-  Phone
+  Phone,
+  Truck
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -56,7 +57,7 @@ import {
   SheetTrigger,
   SheetFooter,
 } from "@/components/ui/sheet";
-import jsPDF from "jspdf";
+import jsPDF from "jsPDF";
 import autoTable from "jspdf-autotable";
 import { useServerFn } from "@tanstack/react-start";
 import { extractBillFromImage } from "@/lib/ai.functions";
@@ -72,6 +73,7 @@ const ALL_COLS: { key: ColKey; label: string }[] = [
 ];
 const DEFAULT_PDF_COLS: ColKey[] = ["available_qty", "last_purchase_rate"];
 
+// UPGRADED CART ITEM WITH FACTORY & SAUDA PREVIEW METADATA
 type CartItem = {
   id: string;
   name: string;
@@ -105,6 +107,55 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+// ─── BROADCAST TEMPLATE SUB-SECTION ─────────────────────────────────────────
+function BroadcastSection({ 
+  title, 
+  data, 
+  manualRates, 
+  setManualRates 
+}: { 
+  title: string, 
+  data: any, 
+  manualRates: Record<string, string>, 
+  setManualRates: any 
+}) {
+  if (!data) return null;
+  return (
+    <div className="border border-slate-400">
+      <div className="bg-[#b9d7d9] text-center font-bold text-[13px] py-1 border-b border-slate-400 uppercase tracking-tighter text-slate-900">
+        {title}
+      </div>
+      <table className="w-full text-[12px] bg-white border-collapse">
+        <thead className="bg-[#d1e5e7] border-b border-slate-400 font-bold uppercase text-[9px]">
+          <tr>
+            <th className="p-1 border-r border-slate-400 text-left pl-2">SIZE</th>
+            <th className="p-1 border-r border-slate-400 w-14 text-center">BILL</th>
+            <th className="p-1 w-14 text-center">NC</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.rows.map((r: any) => (
+            <tr key={r.id} className="border-b border-slate-200 h-7">
+              <td className="p-1 pl-2 font-medium border-r border-slate-400 truncate max-w-[120px] text-slate-700">{r.name}</td>
+              <td className="p-1 text-center border-r border-slate-400 font-mono text-slate-500">
+                {r.today > 0 ? r.today.toFixed(0) : "—"}
+              </td>
+              <td className="p-0 text-center relative group">
+                <input 
+                  type="text"
+                  className="w-full h-full text-center bg-transparent font-black border-none focus:ring-2 focus:ring-emerald-500 focus:bg-emerald-50 p-0 m-0 text-slate-900"
+                  value={manualRates[r.id] ?? r.party.toFixed(0)}
+                  onChange={(e) => setManualRates((prev: any) => ({ ...prev, [r.id]: e.target.value }))}
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function ItemsPage() {
   const factories = useQuery({ queryKey: ["factories"], queryFn: fetchFactories });
   const sections = useQuery({ queryKey: ["sections"], queryFn: fetchSections });
@@ -128,8 +179,7 @@ function ItemsPage() {
 
   // --- BROADCAST STATE ---
   const [isBroadcastOpen, setIsBroadcastOpen] = useState(false);
-  const [manualRates, setManualRates] = useState<Record<string, number>>({});
-  const broadcastRef = useRef<HTMLDivElement>(null);
+  const [manualRates, setManualRates] = useState<Record<string, string>>({});
 
   // --- AI SCAN STATE ---
   const [isExtracting, setIsExtracting] = useState(false);
@@ -151,6 +201,7 @@ function ItemsPage() {
     last_purchase_rate: "",
   });
 
+  // Fetch last 3 purchases
   const itemHistory = useQuery({
     queryKey: ["item_history", historyItem?.id],
     queryFn: async () => {
@@ -166,6 +217,7 @@ function ItemsPage() {
     enabled: !!historyItem,
   });
 
+  // Fetch last 10 activities (ledger)
   const itemLedger = useQuery({
     queryKey: ["item_ledger", ledgerItem?.id],
     queryFn: async () => {
@@ -252,13 +304,7 @@ function ItemsPage() {
       };
     })
     .filter((g: any) => g.rows.length > 0)
-    .sort((a: any, b: any) => {
-      const aPipe = a.section.name.trim().toLowerCase().includes("ms pipe");
-      const bPipe = b.section.name.trim().toLowerCase().includes("ms pipe");
-      if (aPipe && !bPipe) return 1;
-      if (!aPipe && bPipe) return -1;
-      return 0;
-    });
+    .sort((a: any, b: any) => a.section.position - b.section.position);
   }, [factories.data, sections.data, items.data, pickedTodayFactory, pickedSauda, allOpenSaudas, q, localGauges]);
 
   const toggleCart = (item: any, sectionName: string, meta?: any) => {
@@ -312,6 +358,7 @@ function ItemsPage() {
       const newCartItems: CartItem[] = [];
       let matchedCount = 0;
 
+      // Find matched items in our current context-aware grouped view to get correct rates
       result.items.forEach((extracted) => {
         if (!extracted.matched_item_id) return;
         
@@ -367,6 +414,7 @@ function ItemsPage() {
     setCart((prev) => prev.map((i) => (i.id === id ? { ...i, qty } : i)));
   };
 
+  // --- CLEAN TEXT COPY / DOWNLOAD HELPER ---
   const getFormattedCartText = () => {
     return cart
       .map((item, idx) => {
@@ -429,14 +477,15 @@ function ItemsPage() {
   };
 
   const handleExportImage = async (elementId: string) => {
-    const tid = toast.loading("Generating broadcast image...");
+    const tid = toast.loading("Generating high-fidelity image...");
     try {
       const win = window as any;
       if (!win.htmlToImage) {
         await new Promise((resolve, reject) => {
           const script = document.createElement("script");
           script.src = "https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js";
-          script.onload = resolve; script.onerror = reject;
+          script.onload = resolve;
+          script.onerror = reject;
           document.head.appendChild(script);
         });
       }
@@ -447,16 +496,18 @@ function ItemsPage() {
       const dataUrl = await win.htmlToImage.toPng(element, {
         backgroundColor: '#ffffff',
         quality: 1,
-        pixelRatio: 2,
+        pixelRatio: 3, // Very high density for WhatsApp clarity
       });
 
       const link = document.createElement("a");
-      link.download = elementId === "capture-area" ? "Quote.png" : "Daily_Rate_List.png";
+      link.download = elementId === "capture-area" ? "Quotation.png" : "Daily_Rate_List.png";
       link.href = dataUrl;
       link.click();
-      toast.success("Ready for broadcast!", { id: tid });
+
+      toast.success("Image generated successfully!", { id: tid });
     } catch (err: any) {
-      toast.error("Generation failed. Use manual screenshot.", { id: tid });
+      console.error("Critical Failure:", err);
+      toast.error("System Error: Use manual screenshot instead.", { id: tid });
     }
   };
 
@@ -642,7 +693,6 @@ function ItemsPage() {
     doc.save("Items_Report.pdf");
   };
 
-  // --- TEMPLATE LOGIC HELPERS ---
   const getSectionByName = (name: string) => {
     return grouped.find(g => g.section.name.toLowerCase().includes(name.toLowerCase()));
   };
@@ -654,86 +704,72 @@ function ItemsPage() {
           <h2 className="text-2xl font-bold">Items Matrix</h2>
           
           <div className="flex items-center gap-2">
-            {/* BROADCAST TEMPLATE BUTTON */}
+            {/* BROADCAST DIALOG */}
             <Dialog open={isBroadcastOpen} onOpenChange={setIsBroadcastOpen}>
               <DialogTrigger asChild>
-                <Button variant="default" size="sm" className="h-9 gap-1.5 bg-emerald-600 hover:bg-emerald-700">
-                  <Share2 className="h-4 w-4" /> Broadcast
+                <Button variant="default" size="sm" className="h-9 gap-1.5 bg-emerald-600 hover:bg-emerald-700 font-bold border-b-2 border-emerald-800 active:border-b-0">
+                  <Share2 className="h-4 w-4" /> Broadcast Rates
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-[95vw] lg:max-w-6xl max-h-[95vh] overflow-y-auto p-0 border-none bg-slate-100">
+              <DialogContent className="max-w-[95vw] lg:max-w-6xl max-h-[95vh] overflow-y-auto p-0 border-none bg-slate-200">
                 <div className="sticky top-0 z-50 bg-white border-b p-4 flex items-center justify-between shadow-sm">
                    <div>
-                     <DialogTitle className="text-xl font-bold">WhatsApp Broadcast Preview</DialogTitle>
-                     <p className="text-xs text-muted-foreground">Click on any <span className="font-bold">NC</span> value to manually edit before downloading.</p>
+                     <DialogTitle className="text-xl font-bold flex items-center gap-2 text-slate-800">
+                        <ImageIcon className="h-5 w-5 text-emerald-600" /> Daily Rate-List Template
+                     </DialogTitle>
+                     <p className="text-xs text-muted-foreground flex items-center gap-1">Click values in <span className="font-bold text-slate-900 px-1 bg-slate-100 rounded">NC</span> column to override rates before saving.</p>
                    </div>
                    <div className="flex gap-2">
-                      <Button variant="outline" onClick={() => setManualRates({})}>Reset Rates</Button>
-                      <Button onClick={() => handleExportImage("broadcast-area")} className="bg-emerald-600 hover:bg-emerald-700 gap-2">
-                        <Download className="h-4 w-4" /> Download Broadcast Image
+                      <Button variant="outline" size="sm" onClick={() => setManualRates({})}>Reset Edits</Button>
+                      <Button onClick={() => handleExportImage("broadcast-area")} className="bg-emerald-600 hover:bg-emerald-700 gap-2 h-10 px-6 font-bold shadow-md">
+                        <Download className="h-4 w-4" /> Download Image
                       </Button>
                    </div>
                 </div>
 
-                <div className="flex justify-center p-4">
-                  {/* START OF THE EXACT TEMPLATE */}
-                  <div id="broadcast-area" style={{ width: '1000px', backgroundColor: '#f3f4f6', color: '#334155', fontFamily: 'serif' }} className="p-8">
+                <div className="flex justify-center p-6 bg-slate-300 min-h-[600px]">
+                  {/* BROADCAST AREA TEMPLATE MIRROR */}
+                  <div id="broadcast-area" style={{ width: '1000px', backgroundColor: '#f3f4f6', color: '#334155', fontFamily: '"Arial", sans-serif' }} className="p-8 shadow-2xl border border-slate-400">
                       {/* Header */}
-                      <div className="bg-[#8ec2c2] p-4 text-center border-b-4 border-slate-400 mb-6">
-                        <h1 className="text-4xl font-bold tracking-widest text-slate-900 uppercase">MAA BHAVANI STEEL, NAGPUR</h1>
+                      <div className="bg-[#8ec2c2] p-5 text-center border-b-4 border-slate-500 mb-8">
+                        <h1 className="text-[48px] font-black tracking-[0.2em] text-slate-900 uppercase" style={{ textShadow: '2px 2px 0px white' }}>MAA BHAVANI STEEL, NAGPUR</h1>
                       </div>
 
                       {/* Main Grid: 4 Columns */}
-                      <div className="grid grid-cols-4 gap-4">
-                        
-                        {/* COL 1: Angle, Channel */}
+                      <div className="grid grid-cols-4 gap-4 items-start">
                         <div className="space-y-4">
-                          <BroadcastSection 
-                            title="MS ANGLE" 
-                            data={getSectionByName("angle")} 
-                            manualRates={manualRates} 
-                            setManualRates={setManualRates} 
-                          />
-                          <BroadcastSection 
-                            title="MS CHANNEL" 
-                            data={getSectionByName("channel")} 
-                            manualRates={manualRates} 
-                            setManualRates={setManualRates} 
-                          />
+                          <BroadcastSection title="MS ANGLE" data={getSectionByName("angle")} manualRates={manualRates} setManualRates={setManualRates} />
+                          <BroadcastSection title="MS CHANNEL" data={getSectionByName("channel")} manualRates={manualRates} setManualRates={setManualRates} />
                         </div>
-
-                        {/* COL 2: Beam, Bar, Round, Plate */}
                         <div className="space-y-4">
                           <BroadcastSection title="I BEAM" data={getSectionByName("beam")} manualRates={manualRates} setManualRates={setManualRates} />
                           <BroadcastSection title="MS SQ BAR" data={getSectionByName("square bar")} manualRates={manualRates} setManualRates={setManualRates} />
                           <BroadcastSection title="MS ROUND BAR" data={getSectionByName("round bar")} manualRates={manualRates} setManualRates={setManualRates} />
                           <BroadcastSection title="HR PLATE/SHEET" data={getSectionByName("plate")} manualRates={manualRates} setManualRates={setManualRates} />
                         </div>
-
-                        {/* COL 3: Flat, CHQ */}
                         <div className="space-y-4">
                           <BroadcastSection title="MS FLAT" data={getSectionByName("flat")} manualRates={manualRates} setManualRates={setManualRates} />
                           <BroadcastSection title="CHQ PLATE" data={getSectionByName("chq")} manualRates={manualRates} setManualRates={setManualRates} />
                         </div>
-
-                        {/* COL 4: Pipes */}
                         <div className="space-y-4">
-                          <div className="border border-slate-400">
-                             <div className="bg-[#b9d7d9] text-center font-bold text-sm py-1 border-b border-slate-400 uppercase tracking-tighter">MS PIPE</div>
+                          <div className="border border-slate-400 overflow-hidden">
+                             <div className="bg-[#b9d7d9] text-center font-bold text-[13px] py-1 border-b border-slate-400 uppercase text-slate-900">MS PIPE</div>
                              <table className="w-full text-[12px] bg-white">
-                               <thead className="bg-[#d1e5e7] border-b border-slate-400 font-bold uppercase text-[10px]">
+                               <thead className="bg-[#d1e5e7] border-b border-slate-400 font-bold uppercase text-[9px]">
                                  <tr>
-                                   <th className="p-1 border-r border-slate-400 text-left">ITEM</th>
-                                   <th className="p-1 border-r border-slate-400 w-12">BILL</th>
-                                   <th className="p-1 w-12">NC</th>
+                                   <th className="p-1 border-r border-slate-400 text-left pl-2">ITEM</th>
+                                   <th className="p-1 border-r border-slate-400 w-12 text-center">BILL</th>
+                                   <th className="p-1 w-12 text-center">NC</th>
                                  </tr>
                                </thead>
                                <tbody>
                                  <tr className="border-b border-slate-200">
-                                   <td className="p-1 pl-2 font-bold border-r border-slate-400">PIPE BASIC</td>
-                                   <td className="p-1 text-center border-r border-slate-400">—</td>
-                                   <td className="p-1 text-center font-bold">
+                                   <td className="p-1 pl-2 font-bold border-r border-slate-400 text-slate-700">PIPE BASIC</td>
+                                   <td className="p-1 text-center border-r border-slate-400 font-bold text-slate-900">
                                       {getSectionByName("pipe")?.activeFacBasic || "—"}
+                                   </td>
+                                   <td className="p-1 text-center font-bold text-slate-900 bg-slate-50">
+                                      {(getSectionByName("pipe")?.activeFacBasic || 0) + (getSectionByName("pipe")?.activePartyAdder || 0)}
                                    </td>
                                  </tr>
                                </tbody>
@@ -743,23 +779,19 @@ function ItemsPage() {
                         </div>
                       </div>
 
-                      {/* Footer Info */}
-                      <div className="mt-8 pt-4 border-t border-slate-300">
-                         <div className="grid grid-cols-2 text-sm italic text-slate-600 gap-y-1">
-                            <div className="flex items-center gap-2"><ArrowLeftRight className="h-3.5 w-3.5 text-blue-500" /> Ex-Butibori (Nagpur) Rates.</div>
-                            <div className="flex items-center gap-2"><Plus className="h-3.5 w-3.5 text-amber-500" /> Specials Sizes Available on Request</div>
-                            <div className="flex items-center gap-2"><Truck className="h-3.5 w-3.5 text-slate-500" /> Loading Extra.</div>
-                            <div className="flex items-center gap-2 font-bold text-slate-900"><ReceiptText className="h-3.5 w-3.5 text-orange-600" /> GST Extra on Bill Rate.</div>
+                      {/* Footer */}
+                      <div className="mt-10 pt-6 border-t-2 border-slate-300">
+                         <div className="grid grid-cols-2 text-[14px] italic text-slate-700 font-semibold gap-y-2">
+                            <div className="flex items-center gap-2"><ArrowLeftRight className="h-4 w-4 text-blue-600" /> Ex-Butibori (Nagpur) Rates.</div>
+                            <div className="flex items-center gap-2"><Plus className="h-4 w-4 text-amber-600" /> Specials Sizes Available on Request</div>
+                            <div className="flex items-center gap-2"><Truck className="h-4 w-4 text-slate-500" /> Loading Extra.</div>
+                            <div className="flex items-center gap-2 font-black text-slate-900"><ReceiptText className="h-4 w-4 text-red-600" /> GST Extra on Bill Rate.</div>
                          </div>
-                         <div className="mt-4 text-[13px] text-slate-500">
-                            (Note: A delay penalty of 40/MT per day applies to late settlements).
-                         </div>
-                         <div className="mt-6 flex items-center justify-center gap-6 text-slate-900 font-bold border-t border-slate-200 pt-4">
-                            <div className="flex items-center gap-2">Connect with us: <Phone className="h-4 w-4 text-emerald-600" /> 9423102235 | 9423104435 | 9665154631</div>
+                         <div className="mt-8 flex items-center justify-center gap-2 text-slate-900 text-[20px] font-black border-t-4 border-slate-400 pt-6">
+                            Connect with us: <Phone className="h-6 w-6 text-emerald-600 fill-emerald-600 ml-2" /> 9423102235 | 9423104435 | 9665154631 (Whatsapp or Call)
                          </div>
                       </div>
                   </div>
-                  {/* END OF TEMPLATE */}
                 </div>
               </DialogContent>
             </Dialog>
@@ -767,597 +799,241 @@ function ItemsPage() {
             <Sheet>
               <SheetTrigger asChild>
                 <Button variant="outline" size="sm" className="relative h-9 gap-2">
-                  <ShoppingCart className="h-4 w-4" />
-                  Cart
+                  <ShoppingCart className="h-4 w-4" /> Cart
                   {cart.length > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] rounded-full h-4 w-4 flex items-center justify-center font-bold">
-                      {cart.length}
-                    </span>
+                    <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] rounded-full h-4 w-4 flex items-center justify-center font-bold">{cart.length}</span>
                   )}
                 </Button>
               </SheetTrigger>
               <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
                 <SheetHeader>
                   <SheetTitle className="flex items-center gap-2">
-                    <ReceiptText className="h-5 w-5" /> Quotation Cart & Verification
+                    <ReceiptText className="h-5 w-5" /> Quotation Cart
                   </SheetTitle>
-                  <SheetDescription>Verify live Today, Adder, and Sauda preview configurations before exporting.</SheetDescription>
+                  <SheetDescription>Verify and override rates before exporting.</SheetDescription>
                 </SheetHeader>
-                
                 <div className="py-6 space-y-6">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="cart-party">Party Name (Optional)</Label>
-                    <Input 
-                      id="cart-party" 
-                      placeholder="Enter customer name..." 
-                      value={partyName} 
-                      onChange={(e) => setPartyName(e.target.value)} 
-                    />
-                  </div>
-
+                  <Input placeholder="Party Name" value={partyName} onChange={(e) => setPartyName(e.target.value)} />
                   {cart.length === 0 ? (
                     <div className="text-center py-10 text-muted-foreground text-sm">Your cart is empty.</div>
                   ) : (
                     <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                          Selected Items ({cart.length})
-                        </div>
-                        <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={handleCopyText}>
-                          <FileText className="h-3 w-3" /> Copy Text Format
-                        </Button>
-                      </div>
-
-                      <div style={{ position: 'fixed', top: '-2000px', left: '0', zIndex: -100 }}>
-                        <div id="capture-area" style={{ width: '600px', padding: '40px', backgroundColor: '#ffffff', color: '#000000', fontFamily: 'Arial, sans-serif' }}>
-                          <div style={{ borderBottom: '3px solid #1e293b', paddingBottom: '20px', marginBottom: '30px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                            <div>
-                              <h1 style={{ margin: 0, fontSize: '28px', fontWeight: 'bold', color: '#0f172a', textTransform: 'uppercase' }}>Quotation</h1>
-                              <p style={{ margin: '5px 0 0 0', fontSize: '16px', color: '#475569' }}>Party: <b>{partyName || "Valued Customer"}</b></p>
-                            </div>
-                            <div style={{ textAlign: 'right', fontSize: '14px', color: '#64748b' }}>
-                              Date: {new Date().toLocaleDateString()}
-                            </div>
+                      {cart.map((item) => (
+                        <div key={item.id} className="p-3 border rounded-lg bg-muted/20 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-bold truncate">{item.name}</span>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => toggleCart(item, "")}><Trash2 className="h-3.5 w-3.5" /></Button>
                           </div>
-                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <thead>
-                              <tr style={{ backgroundColor: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }}>
-                                <th style={{ padding: '12px', textAlign: 'left', fontSize: '14px' }}>Item Description</th>
-                                <th style={{ padding: '12px', textAlign: 'center', fontSize: '14px' }}>Qty</th>
-                                <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px' }}>Rate</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {cart.map(item => (
-                                <tr key={item.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                                  <td style={{ padding: '14px 12px', fontSize: '15px', fontWeight: '500' }}>{item.name}</td>
-                                  <td style={{ padding: '14px 12px', textAlign: 'center', fontSize: '15px' }}>{item.qty || "—"}</td>
-                                  <td style={{ padding: '14px 12px', textAlign: 'right', fontSize: '15px', fontWeight: 'bold' }}>₹{Number(item.rate).toFixed(0)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                          <div style={{ marginTop: '50px', paddingTop: '20px', borderTop: '1px solid #e2e8f0', textAlign: 'center' }}>
-                            <p style={{ margin: 0, fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>
-                              Thank you for your business. This is a computer generated quote.
-                            </p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1"><Label className="text-[10px]">Quantity</Label><Input placeholder="Optional" value={item.qty} onChange={(e) => updateCartQty(item.id, e.target.value)} className="h-8 text-xs" /></div>
+                            <div className="space-y-1"><Label className="text-[10px] font-bold">Party Rate (₹)</Label><Input type="number" value={item.rate} onChange={(e) => updateCartRate(item.id, Number(e.target.value))} className="h-8 font-mono font-bold text-xs" /></div>
                           </div>
                         </div>
-                      </div>
-
-                      <div className="space-y-3">
-                        {cart.map((item) => (
-                          <div key={item.id} className="flex flex-col gap-2 p-3 border rounded-lg bg-muted/20 shadow-xs">
-                            <div className="flex items-center justify-between border-b pb-2">
-                              <div className="truncate pr-4">
-                                <p className="text-[10px] uppercase text-muted-foreground font-bold">{item.sectionName}</p>
-                                <p className="text-sm font-semibold truncate">{item.name}</p>
-                              </div>
-                              <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => toggleCart(item, "")}>
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
-                            <div className="text-[11px] bg-muted/50 p-2 rounded border border-border/60 space-y-1">
-                              <div className="flex justify-between items-center text-foreground">
-                                <span className="text-muted-foreground font-medium">Today Rate Config:</span>
-                                <span className="font-semibold">{item.todayFactoryName} (Basic: ₹{item.todayBasic} + Adder: ₹{item.todayAdder})</span>
-                              </div>
-                              <div className="flex justify-between items-center text-foreground">
-                                <span className="text-muted-foreground font-medium">Sauda Selected:</span>
-                                <span className={`font-semibold ${item.saudaName ? "text-primary" : "text-muted-foreground"}`}>
-                                  {item.saudaName ? `${item.saudaName} (Basic: ₹${item.saudaBasic})` : "No Sauda Selected"}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-5 gap-1 py-1.5 bg-muted/40 rounded px-2 text-[10px] text-center">
-                              <div><span className="text-muted-foreground block">Gauge</span><span className="font-mono font-medium">{item.gauge_diff > 0 ? `+${item.gauge_diff}` : item.gauge_diff}</span></div>
-                              <div><span className="text-muted-foreground block">Today</span><span className="font-mono font-semibold text-primary">₹{Number(item.today).toFixed(0)}</span></div>
-                              <div><span className="text-muted-foreground block">Sauda</span><span className="font-mono">{item.sauda !== null ? `₹${Number(item.sauda).toFixed(0)}` : "—"}</span></div>
-                              <div><span className="text-muted-foreground block">Stock</span><span className="font-mono">{Number(item.available_qty).toFixed(1)}t</span></div>
-                              <div><span className="text-muted-foreground block">Last Pur.</span><span className="font-mono">{item.last_purchase_rate ? `₹${item.last_purchase_rate}` : "—"}</span></div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-3 pt-1">
-                              <div className="space-y-1"><Label className="text-[10px]">Quantity</Label><Input placeholder="Optional" value={item.qty} onChange={(e) => updateCartQty(item.id, e.target.value)} className="h-8 text-xs bg-background" /></div>
-                              <div className="space-y-1 text-right"><Label className="text-[10px] text-primary font-bold">Party Rate (₹)</Label><Input type="number" value={item.rate} onChange={(e) => updateCartRate(item.id, Number(e.target.value))} className="h-8 text-right font-mono font-bold text-xs bg-background border-primary/40" /></div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                      ))}
                     </div>
                   )}
+                  {/* HIDDEN CAPTURE AREA FOR QUOTATION */}
+                  <div style={{ position: 'fixed', top: '-5000px' }}><div id="capture-area" className="p-10 bg-white text-black" style={{ width: '600px' }}>
+                    <h2 className="text-2xl font-bold mb-4 uppercase">Quotation: {partyName || 'Customer'}</h2>
+                    <table className="w-full border-collapse"><thead className="bg-slate-100 border-b"><tr><th className="p-3 text-left">Item Description</th><th className="p-3 text-center">Qty</th><th className="p-3 text-right">Rate</th></tr></thead><tbody>{cart.map(c=>(<tr key={c.id} className="border-b"><td className="p-3">{c.name}</td><td className="p-3 text-center">{c.qty||'—'}</td><td className="p-3 text-right font-bold">₹{Number(c.rate).toFixed(0)}</td></tr>))}</tbody></table>
+                  </div></div>
                 </div>
-
-                <SheetFooter className="flex-col gap-2 sm:flex-col mt-auto border-t pt-4">
-                  <div className="grid grid-cols-3 gap-2 w-full">
-                    <Button disabled={cart.length === 0} onClick={handleExportCartPDF} variant="outline" className="gap-1.5 text-xs"><Download className="h-3.5 w-3.5" /> PDF</Button>
-                    <Button disabled={cart.length === 0} onClick={() => handleExportImage("capture-area")} variant="outline" className="gap-1.5 text-xs"><ImageIcon className="h-3.5 w-3.5" /> Image</Button>
-                    <Button disabled={cart.length === 0} onClick={handleDownloadText} className="gap-1.5 text-xs bg-slate-800 text-white"><FileText className="h-3.5 w-3.5" /> TXT</Button>
-                  </div>
-                  <Button variant="ghost" className="w-full text-xs text-muted-foreground h-8" onClick={() => setCart([])} disabled={cart.length === 0}>Clear Cart</Button>
-                </SheetFooter>
+                <SheetFooter className="flex-col gap-2"><Button disabled={cart.length === 0} onClick={() => handleExportImage("capture-area")} className="w-full h-12 text-lg">Generate Quote Image</Button></SheetFooter>
               </SheetContent>
             </Sheet>
 
             <Dialog open={isScanEnquiryOpen} onOpenChange={setIsScanEnquiryOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="h-9 gap-1.5 text-blue-600 border-blue-200 hover:bg-blue-50">
-                  <ScanLine className="h-4 w-4" /> Scan Enquiry
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle>AI Enquiry Scanner</DialogTitle>
-                  <DialogDescription>Upload an enquiry photo. AI will match your products and apply current rates automatically.</DialogDescription>
-                </DialogHeader>
+              <DialogTrigger asChild><Button variant="outline" size="sm" className="h-9 gap-1.5 text-blue-600 border-blue-200"><ScanLine className="h-4 w-4" /> Scan Enquiry</Button></DialogTrigger>
+              <DialogContent><DialogHeader><DialogTitle>AI Enquiry Scanner</DialogTitle></DialogHeader>
                 <div className="py-4 space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="enquiry-file">Requirement Image / PDF</Label>
-                    <Input 
-                      id="enquiry-file" 
-                      type="file" 
-                      accept="image/*,application/pdf" 
-                      onChange={(e) => e.target.files?.[0] && handleEnquiryScan(e.target.files[0])}
-                      disabled={isExtracting}
-                    />
-                  </div>
-                  {isExtracting && (
-                    <div className="flex flex-col items-center justify-center py-8 space-y-3">
-                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                      <p className="text-sm font-medium animate-pulse">Reading document & matching items...</p>
-                    </div>
-                  )}
+                  <Input type="file" onChange={(e) => e.target.files?.[0] && handleEnquiryScan(e.target.files[0])} disabled={isExtracting} />
+                  {isExtracting && <div className="flex flex-col items-center justify-center py-6 gap-2"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="text-sm font-medium">Extracting Requirements...</p></div>}
                 </div>
-                <DialogFooter><Button variant="ghost" onClick={() => setIsScanEnquiryOpen(false)} disabled={isExtracting}>Cancel</Button></DialogFooter>
               </DialogContent>
             </Dialog>
           </div>
         </div>
 
         <div className="flex items-center gap-2 ml-auto">
-          <Input placeholder="Search..." value={q} onChange={(e) => setQ(e.target.value)} className="w-32 md:w-48 h-9" />
-
+          <Input placeholder="Search Matrix..." value={q} onChange={(e) => setQ(e.target.value)} className="w-32 md:w-48 h-9" />
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" className="h-9 gap-1.5 bg-primary text-primary-content">
-                <Plus className="h-4 w-4" /> Add New
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => openAddItem()}>Add Product Item</DropdownMenuItem>
-              <DropdownMenuItem onClick={openAddSection}>Add Section Group</DropdownMenuItem>
-            </DropdownMenuContent>
+            <DropdownMenuTrigger asChild><Button size="sm" className="h-9 gap-1.5"><Plus className="h-4 w-4" /> Add New</Button></DropdownMenuTrigger>
+            <DropdownMenuContent align="end"><DropdownMenuItem onClick={() => openAddItem()}>Add Product Item</DropdownMenuItem><DropdownMenuItem onClick={openAddSection}>Add Section Group</DropdownMenuItem></DropdownMenuContent>
           </DropdownMenu>
-
-          <Button onClick={() => setIsEditingGauges(!isEditingGauges)} variant={isEditingGauges ? "default" : "outline"} size="sm" className="h-9 hidden md:flex">
-            <Sliders className="mr-2 h-4 w-4" /> {isEditingGauges ? "Finish Editing" : "Edit Gauges"}
-          </Button>
-
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-2 h-9 text-xs">
-                <FileText className="h-4 w-4" />
-                <span className="hidden sm:inline">PDF</span>
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-64">
-              <div className="space-y-3">
-                <div>
-                  <div className="text-sm font-semibold">Export as PDF</div>
-                  <div className="text-[11px] text-muted-foreground">Item name is always included.</div>
-                </div>
-                <div className="space-y-2">
-                  {ALL_COLS.map((c) => (
-                    <div key={c.key} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`pdfcol-${c.key}`}
-                        checked={pdfCols.includes(c.key)}
-                        onCheckedChange={(v) =>
-                          setPdfCols((prev) =>
-                            v ? [...prev, c.key] : prev.filter((k) => k !== k),
-                          )
-                        }
-                      />
-                      <Label htmlFor={`pdfcol-${c.key}`} className="text-xs font-normal cursor-pointer">
-                        {c.label}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-                <Button onClick={handleExportPDF} size="sm" className="w-full h-8 text-xs gap-2">
-                  <FileDown className="h-3.5 w-3.5" /> Download PDF
-                </Button>
-              </div>
-            </PopoverContent>
-          </Popover>
-
-          <Button onClick={handleExportCSV} variant="outline" size="sm" className="gap-2 h-9 text-xs">
-            <FileDown className="h-4 w-4" />
-            <span className="hidden sm:inline">CSV</span>
-          </Button>
+          <Button onClick={() => setIsEditingGauges(!isEditingGauges)} variant={isEditingGauges ? "default" : "outline"} size="sm" className="h-9 hidden md:flex"><Sliders className="mr-2 h-4 w-4" /> {isEditingGauges ? "Done" : "Edit Gauges"}</Button>
         </div>
       </div>
 
+      {/* MOBILE VIEW */}
       <div className="block md:hidden space-y-4">
-        {grouped.map(({ section, activeTodayFactory, activeFacBasic, activeFacAdder, activePartyAdder, topSauda, rows }) => (
-          <div
-            key={section.id}
-            id={`section-${section.id}`}
-            className="scroll-mt-20 border rounded-lg overflow-visible bg-background shadow-sm"
-          >
-            <table className="w-full border-collapse text-left text-[11px] table-fixed">
-              <thead className="bg-slate-50 sticky top-0 z-10 border-b shadow-xs">
-                <tr className="bg-slate-50 font-bold text-slate-800">
-                  <td colSpan={7} className="py-2 px-2 text-left rounded-t-lg">
-                    <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <div className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                            {section.name}
-                            <button onClick={() => openEditSection(section)} className="p-1 text-muted-foreground hover:text-foreground">
-                              <Edit className="h-3 w-3" />
-                            </button>
-                          </div>
-                          <div className="text-[10px] font-normal text-muted-foreground">
-                            Base: {activeFacBasic} + {activeFacAdder}
-                          </div>
-                        </div>
-                        <div className="flex flex-col gap-1 items-end">
-                          <Select
-                            value={pickedTodayFactory[section.id] ?? section.factory_id}
-                            onValueChange={(v) => setPickedTodayFactory(p => ({ ...p, [section.id]: v }))}
-                          >
-                            <SelectTrigger className="h-7 w-36 text-[10px] bg-background px-2 py-0 shadow-xs">
-                              <SelectValue placeholder="Today Factory" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {factories.data?.map((fac: any) => {
-                                const today = Number(fac.basic_rate ?? 0) + Number(fac.adder ?? 0);
-                                return (
-                                  <SelectItem key={fac.id} value={fac.id} className="text-[11px]">
-                                    {fac.name} (Today: ₹{today})
-                                  </SelectItem>
-                                );
-                              })}
-                            </SelectContent>
-                          </Select>
-
-                          {allOpenSaudas.length > 0 && (
-                            <Select
-                              value={pickedSauda[section.id] ?? topSauda?.id ?? ""}
-                              onValueChange={(v) => setPickedSauda(p => ({ ...p, [section.id]: v }))}
-                            >
-                              <SelectTrigger className="h-7 w-36 text-[10px] bg-background px-2 py-0 shadow-xs">
-                                <SelectValue placeholder="Select Sauda" />
-                              </SelectTrigger>
-                              <SelectContent>
-                              {allOpenSaudas.map((o) => (
-                                <SelectItem key={o.id} value={o.id} className="text-[11px]">
-                                  {o.party} (Basic: ₹{o.basic}) — {o.pending}T
-                                </SelectItem>
-                              ))}
-                              </SelectContent>
-                            </Select>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-                <tr className="text-muted-foreground font-semibold bg-muted/50 border-t">
-                  <th className="py-2 px-1 pl-2 w-[28%] text-left">Item</th>
-                  <th className="py-2 px-1 text-right w-[9%]">±</th>
-                  <th className="py-2 px-1 text-right w-[14%] bg-primary/5 text-primary font-bold">Today</th>
-                  <th className="py-2 px-1 text-right w-[14%]">Sauda</th>
-                  <th className="py-2 px-1 text-right w-[12%]">Party</th>
-                  <th className="py-2 px-1 text-right w-[12%]">Stock</th>
-                  <th className="py-2 px-1 text-right pr-2 w-[11%]">Last</th>
-                </tr>
+        {grouped.map((g) => (
+          <div key={g.section.id} id={`section-${g.section.id}`} className="border rounded-lg bg-background shadow-sm overflow-hidden">
+            <div className="bg-slate-50 p-2 flex justify-between items-center border-b">
+               <div className="text-xs font-bold">{g.section.name}</div>
+               <Select value={pickedTodayFactory[g.section.id] ?? g.section.factory_id} onValueChange={(v) => setPickedTodayFactory(p => ({ ...p, [g.section.id]: v }))}>
+                  <SelectTrigger className="h-7 w-32 text-[10px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>{factories.data?.map((fac: any) => <SelectItem key={fac.id} value={fac.id} className="text-[10px]">{fac.name}</SelectItem>)}</SelectContent>
+               </Select>
+            </div>
+            <table className="w-full text-[11px]">
+              <thead className="bg-muted/50 border-b">
+                <tr><th className="p-2 text-left">Item</th><th className="p-2 text-right">NC</th><th className="p-2 text-right">Stock</th></tr>
               </thead>
               <tbody className="divide-y">
-                {rows.map((r) => {
-                   const isInCart = cart.some(ci => ci.id === r.id);
-                   return (
-                    <tr key={r.id} className={`hover:bg-muted/5 group ${isInCart ? "bg-primary/[0.03]" : ""}`}>
-                      <td className="py-2 px-1 pl-2 font-medium text-foreground break-words">
-                        <div className="flex items-center gap-1">
-                          <button 
-                            onClick={() => toggleCart(r, section.name, { activeTodayFactory, activeFacBasic, activeFacAdder, activePartyAdder, topSauda })} 
-                            className={`p-1 rounded-md transition-colors ${isInCart ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-primary"}`}
-                          >
-                            <ShoppingCart className="h-3 w-3" />
-                          </button>
-                          <span>{r.name}</span>
-                          <button onClick={() => openEditItem(r)} className="opacity-40 group-hover:opacity-100 p-0.5 text-muted-foreground hover:text-foreground transition-opacity">
-                            <Edit className="h-2.5 w-2.5" />
-                          </button>
-                        </div>
-                      </td>
-                      <td className="py-2 px-1 text-right font-mono text-muted-foreground whitespace-nowrap">{r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff}</td>
-                      <td className="py-2 px-1 text-right font-mono font-bold text-primary bg-primary/[0.01] whitespace-nowrap">{r.today.toFixed(0)}</td>
-                      <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
-                      <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.party.toFixed(0)}</td>
-                      <td className="py-2 px-1 text-right font-mono font-semibold text-foreground whitespace-nowrap">
-                        <button
-                          onClick={() => setLedgerItem(r)}
-                          className="text-foreground underline underline-offset-2 decoration-muted-foreground/30 hover:text-primary transition-colors focus:outline-hidden"
-                        >
-                          {Number(r.available_qty).toFixed(1)}t
-                        </button>
-                      </td>
-                      <td className="py-2 px-1 text-right pr-2 font-mono text-muted-foreground whitespace-nowrap">
-                        <button
-                          onClick={() => setHistoryItem(r)}
-                          className="text-primary underline-offset-2 hover:underline font-semibold focus:outline-hidden"
-                        >
-                          {r.last_purchase_rate != null ? r.last_purchase_rate : "—"}
-                        </button>
-                      </td>
-                    </tr>
-                   );
-                })}
+                {g.rows.map((r: any) => (
+                  <tr key={r.id} className="h-10">
+                    <td className="px-2 font-medium flex items-center gap-1 h-10">
+                      <button onClick={() => toggleCart(r, g.section.name, g)} className={cart.some(c=>c.id===r.id)?'text-primary':''}><ShoppingCart className="h-3 w-3"/></button>
+                      <span className="truncate">{r.name}</span>
+                    </td>
+                    <td className="px-2 text-right font-bold text-primary">₹{r.party.toFixed(0)}</td>
+                    <td className="px-2 text-right">
+                       <button onClick={()=>setLedgerItem(r)} className="underline">{Number(r.available_qty).toFixed(1)}t</button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         ))}
       </div>
 
-      <div className="hidden md:block space-y-4">
-        {grouped.map(({ section, activeTodayFactory, activeFacBasic, activeFacAdder, activePartyAdder, topSauda, rows }) => (
-          <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20 overflow-visible">
-            <div className="sticky top-14 z-20 bg-card border-b shadow-xs rounded-t-lg">
-              <div className="p-4 pb-2 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-col">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-base font-bold text-foreground">{section.name}</h3>
-                    <Button onClick={() => openEditSection(section)} variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground">
-                      <Edit className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                  <span className="text-xs font-normal text-muted-foreground">
-                    ({activeTodayFactory?.name} Basic: ₹{activeFacBasic} + Adder: ₹{activeFacAdder})
-                  </span>
+      {/* DESKTOP VIEW */}
+      <div className="hidden md:block space-y-6">
+        {grouped.map((g) => (
+          <Card key={g.section.id} id={`section-${g.section.id}`} className="scroll-mt-20 overflow-visible">
+            <div className="sticky top-14 z-20 bg-card border-b shadow-xs p-4 flex justify-between items-center">
+                <div>
+                  <h3 className="text-base font-bold flex items-center gap-2">{g.section.name} <Button onClick={() => openEditSection(g.section)} variant="ghost" size="icon" className="h-6 w-6"><Edit className="h-3.5 w-3.5" /></Button></h3>
+                  <span className="text-[10px] uppercase text-muted-foreground font-medium">({g.activeTodayFactory?.name} Basic: ₹{g.activeFacBasic} + Adder: ₹{g.activeFacAdder})</span>
                 </div>
-
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2 text-xs font-normal">
-                    <span className="text-muted-foreground">Today's Factory:</span>
-                    <Select
-                      value={pickedTodayFactory[section.id] ?? section.factory_id}
-                      onValueChange={(v) => setPickedTodayFactory(p => ({ ...p, [section.id]: v }))}
-                    >
-                      <SelectTrigger className="h-8 w-48 text-xs bg-background"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {factories.data?.map((f: any) => {
-                          const today = Number(f.basic_rate ?? 0) + Number(f.adder ?? 0);
-                          return (
-                            <SelectItem key={f.id} value={f.id}>
-                              {f.name} (Today: ₹{today})
-                            </SelectItem>
-                          );
-                        })}
-                      </SelectContent>
+                <div className="flex gap-4">
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-muted-foreground">Today Factory:</span>
+                    <Select value={pickedTodayFactory[g.section.id] ?? g.section.factory_id} onValueChange={(v) => setPickedTodayFactory(p => ({ ...p, [g.section.id]: v }))}>
+                      <SelectTrigger className="h-8 w-40 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>{factories.data?.map((f: any) => <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
-
                   {allOpenSaudas.length > 0 && (
-                    <div className="flex items-center gap-2 text-xs font-normal">
-                      <span className="text-muted-foreground">Selected Sauda:</span>
-                      <Select
-                        value={pickedSauda[section.id] ?? topSauda?.id ?? ""}
-                        onValueChange={(v) => setPickedSauda(p => ({ ...p, [section.id]: v }))}
-                      >
-                        <SelectTrigger className="h-8 w-64 text-xs bg-background"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {allOpenSaudas.map((o) => (
-                            <SelectItem key={o.id} value={o.id} className="text-xs">
-                              {o.party} (Basic: ₹{o.basic}) — {o.pending}T
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="text-muted-foreground">Sauda:</span>
+                      <Select value={pickedSauda[g.section.id] ?? g.topSauda?.id ?? ""} onValueChange={(v) => setPickedSauda(p => ({ ...p, [g.section.id]: v }))}>
+                        <SelectTrigger className="h-8 w-48 text-xs"><SelectValue placeholder="Select Sauda"/></SelectTrigger>
+                        <SelectContent>{allOpenSaudas.map(o => <SelectItem key={o.id} value={o.id} className="text-xs">{o.party} (₹{o.basic})</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
                   )}
                 </div>
-              </div>
-
-              <div className="px-4 py-2 flex text-xs font-semibold text-muted-foreground bg-muted/20 border-t">
-                <div className="w-[24%] text-left">Item Name</div>
-                <div className="w-[10%] text-right pr-2">Gauge Diff</div>
-                <div className="w-[13%] text-right">Today's Rate</div>
-                <div className="w-[13%] text-right">Sauda Rate</div>
-                <div className="w-[13%] text-right">Party Rate</div>
-                <div className="w-[13%] text-right">Available Qty</div>
-                <div className="w-[14%] text-right pr-1">Last Purchase</div>
-              </div>
             </div>
-
             <CardContent className="p-0">
-              <div className="divide-y text-sm">
-                {rows.map((r) => {
-                  const isInCart = cart.some(ci => ci.id === r.id);
-                  return (
-                    <div key={r.id} className={`flex px-4 py-2.5 items-center hover:bg-muted/10 transition-colors group ${isInCart ? "bg-primary/[0.03]" : ""}`}>
-                      <div className="w-[24%] text-left font-medium pr-2 text-slate-900 flex items-center gap-2">
-                        <button 
-                          onClick={() => toggleCart(r, section.name, { activeTodayFactory, activeFacBasic, activeFacAdder, activePartyAdder, topSauda })} 
-                          className={`p-1.5 rounded-md transition-colors ${isInCart ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-primary hover:bg-muted"}`}
-                        >
-                          <ShoppingCart className="h-3.5 w-3.5" />
-                        </button>
-                        <span>{r.name}</span>
-                        <Button onClick={() => openEditItem(r)} variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity">
-                          <Edit className="h-3 w-3" />
-                        </Button>
-                      </div>
-
-                      <div className="w-[10%] text-right text-muted-foreground font-mono pr-2 flex justify-end items-center">
+              <table className="w-full text-sm border-collapse">
+                <thead className="bg-muted/5 border-b text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                  <tr>
+                    <th className="p-3 text-left">Item Name</th>
+                    <th className="p-3 text-right">Gauge ±</th>
+                    <th className="p-3 text-right">Today Rate</th>
+                    <th className="p-3 text-right text-primary">Party (NC)</th>
+                    <th className="p-3 text-right">Physical Stock</th>
+                    <th className="p-3 text-right pr-6">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {g.rows.map((r: any) => (
+                    <tr key={r.id} className={`hover:bg-muted/5 group ${cart.some(c=>c.id===r.id)?'bg-emerald-50/30':''}`}>
+                      <td className="p-3 font-semibold text-slate-800">{r.name}</td>
+                      <td className="p-3 text-right font-mono text-slate-400">
                         {isEditingGauges ? (
-                          <Input
-                            type="number"
-                            value={r.gauge_diff}
-                            onChange={(e) => setLocalGauges((p) => ({ ...p, [r.id]: Number(e.target.value) }))}
-                            className="h-7 w-16 text-right text-xs p-1 bg-background border-primary/40 font-mono font-medium"
-                          />
-                        ) : (
-                          r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff
-                        )}
-                      </div>
-
-                      <div className="w-[13%] text-right font-mono font-bold text-primary">{r.today.toFixed(0)}</div>
-                      <div className="w-[13%] text-right font-mono text-slate-700">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</div>
-                      <div className="w-[13%] text-right font-mono text-slate-700">{r.party.toFixed(0)}</div>
-                      <div className="w-[13%] text-right text-slate-900 font-medium">
-                        <button
-                          onClick={() => setLedgerItem(r)}
-                          className="hover:text-primary underline decoration-muted-foreground/20 underline-offset-4 cursor-pointer transition-colors focus:outline-hidden"
-                        >
-                          {Number(r.available_qty).toFixed(2)} MT
-                        </button>
-                      </div>
-                      <div className="w-[14%] text-right font-mono pr-1">
-                        <button
-                          onClick={() => setHistoryItem(r)}
-                          className="text-primary hover:text-primary/80 underline underline-offset-4 cursor-pointer font-semibold transition-colors focus:outline-hidden"
-                        >
-                          {r.last_purchase_rate != null ? r.last_purchase_rate : "—"}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                          <Input type="number" value={r.gauge_diff} onChange={e=>setLocalGauges(p=>({...p, [r.id]: Number(e.target.value)}))} className="h-7 w-16 ml-auto text-right text-xs p-1"/>
+                        ) : (r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff)}
+                      </td>
+                      <td className="p-3 text-right font-mono text-slate-500 font-medium">₹{r.today.toFixed(0)}</td>
+                      <td className="p-3 text-right font-mono font-black text-slate-900 bg-primary/[0.03]">₹{r.party.toFixed(0)}</td>
+                      <td className="p-3 text-right">
+                        <button onClick={()=>setLedgerItem(r)} className="underline decoration-muted-foreground/20 hover:text-primary font-bold text-slate-700">{Number(r.available_qty).toFixed(1)}t</button>
+                      </td>
+                      <td className="p-3 text-right flex justify-end gap-1 pr-6">
+                        <Button variant="ghost" size="icon" className={`h-8 w-8 ${cart.some(c=>c.id===r.id)?'text-emerald-600 bg-emerald-50':''}`} onClick={() => toggleCart(r, g.section.name, g)}><ShoppingCart className="h-4 w-4"/></Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100" onClick={() => openEditItem(r)}><Edit className="h-4 w-4"/></Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" onClick={() => setHistoryItem(r)}><History className="h-4 w-4"/></Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </CardContent>
           </Card>
         ))}
       </div>
 
+      {/* --- ALL ORIGINAL DIALOGS PRESERVED --- */}
+      <Dialog open={!!ledgerItem} onOpenChange={o=>!o && setLedgerItem(null)}>
+        <DialogContent><DialogHeader><DialogTitle>Stock Activity: {ledgerItem?.name}</DialogTitle></DialogHeader>
+          <div className="border rounded-md divide-y max-h-[400px] overflow-y-auto">
+             {itemLedger.data?.map((e:any, idx:number)=>(
+               <div key={idx} className="p-3 text-xs flex justify-between items-center hover:bg-muted/30">
+                 <div><span className="font-bold text-slate-900">{e.bills.vendor}</span><p className="text-muted-foreground">{new Date(e.bills.bill_date).toLocaleDateString()} • {e.bills.type}</p></div>
+                 <span className={`font-black text-sm px-2 py-0.5 rounded ${e.bills.type==='purchase'?'bg-emerald-50 text-emerald-700':'bg-blue-50 text-blue-700'}`}>{e.bills.type==='purchase'?'+':'-'}{Number(e.qty).toFixed(2)}t</span>
+               </div>
+             ))}
+             {!itemLedger.data?.length && <div className="p-10 text-center text-muted-foreground italic">No activities found.</div>}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!historyItem} onOpenChange={o=>!o && setHistoryItem(null)}>
+        <DialogContent className="sm:max-w-md"><DialogHeader><DialogTitle>Recent Purchases: {historyItem?.name}</DialogTitle></DialogHeader>
+          <div className="border rounded-md divide-y overflow-hidden">
+             <div className="grid grid-cols-3 bg-muted/50 p-2.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground"><div>Vendor</div><div className="text-center">Date</div><div className="text-right">Rate</div></div>
+             {itemHistory.data?.map((p:any, idx:number)=>(
+               <div key={idx} className="grid grid-cols-3 p-3 text-xs items-center hover:bg-muted/10">
+                 <div className="font-bold text-slate-800 truncate pr-2">{p.vendor_name}</div>
+                 <div className="text-center text-muted-foreground font-medium">{new Date(p.purchase_date).toLocaleDateString()}</div>
+                 <div className="text-right font-black text-primary text-sm">₹{Number(p.rate).toFixed(0)}</div>
+               </div>
+             ))}
+             {!itemHistory.data?.length && <div className="p-10 text-center text-muted-foreground italic">No purchase history.</div>}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isSectionDialogOpen} onOpenChange={setIsSectionDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>{sectionForm.id ? "Edit Section Profile" : "Create New Section"}</DialogTitle>
-            <DialogDescription>Setup your core category/structural section groups here.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSaveSection} className="space-y-4 py-2">
-            <div className="space-y-1">
-              <Label htmlFor="sec-name" className="text-xs">Section Name</Label>
-              <Input id="sec-name" value={sectionForm.name} onChange={(e) => setSectionForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g., MS Angle, MS Channel" required />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="sec-factory" className="text-xs">Default Reference Factory</Label>
-              <Select value={sectionForm.factory_id} onValueChange={(v) => setSectionForm(p => ({ ...p, factory_id: v }))}>
-                <SelectTrigger id="sec-factory"><SelectValue placeholder="Select primary factory" /></SelectTrigger>
-                <SelectContent>
-                  {factories.data?.map((f: any) => (
-                    <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
-                  ))}
-                </SelectContent>
+        <DialogContent><DialogHeader><DialogTitle>Section Profile</DialogTitle></DialogHeader>
+          <form onSubmit={handleSaveSection} className="space-y-4">
+            <div className="space-y-1"><Label>Section Name</Label><Input value={sectionForm.name} onChange={e=>setSectionForm({...sectionForm, name: e.target.value})} placeholder="e.g. MS Pipe" required/></div>
+            <div className="space-y-1"><Label>Default Factory</Label>
+              <Select value={sectionForm.factory_id} onValueChange={v=>setSectionForm({...sectionForm, factory_id: v})}>
+                <SelectTrigger><SelectValue/></SelectTrigger>
+                <SelectContent>{factories.data?.map((f:any)=><SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" onClick={() => setIsSectionDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Section"}</Button>
-            </DialogFooter>
+            <Button type="submit" className="w-full font-bold" disabled={saving}>Save Section</Button>
           </form>
         </DialogContent>
       </Dialog>
 
       <Dialog open={isItemDialogOpen} onOpenChange={setIsItemDialogOpen}>
-        <DialogContent className="sm:max-w-[450px]">
-          <DialogHeader>
-            <DialogTitle>{itemForm.id ? "Edit Matrix Item" : "Add New Matrix Item"}</DialogTitle>
-            <DialogDescription>Configure specific item properties, inventory settings, and structural dimensions.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSaveItem} className="space-y-4 py-2">
-            <div className="space-y-1">
-              <Label htmlFor="item-name" className="text-xs">Product Item Name / Size</Label>
-              <Input id="item-name" value={itemForm.name} onChange={(e) => setItemForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g., 50x50x5mm" required />
-            </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="item-section" className="text-xs">Belongs to Section Group</Label>
-              <Select value={itemForm.section_id} onValueChange={(v) => setItemForm(p => ({ ...p, section_id: v }))}>
-                <SelectTrigger id="item-section"><SelectValue placeholder="Select section grouping" /></SelectTrigger>
-                <SelectContent>
-                  {sections.data?.map((s: any) => (
-                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
+        <DialogContent><DialogHeader><DialogTitle>Matrix Item Details</DialogTitle></DialogHeader>
+          <form onSubmit={handleSaveItem} className="space-y-4">
+            <div className="space-y-1"><Label>Size / Description</Label><Input value={itemForm.name} onChange={e=>setItemForm({...itemForm, name: e.target.value})} required/></div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="item-gauge" className="text-xs">Gauge Diff (±)</Label>
-                <Input id="item-gauge" type="number" value={itemForm.gauge_diff} onChange={(e) => setItemForm(p => ({ ...p, gauge_diff: Number(e.target.value) }))} />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="item-qty" className="text-xs">Current Stock Qty (MT)</Label>
-                <Input id="item-qty" type="number" step="0.01" value={itemForm.available_qty} onChange={(e) => setItemForm(p => ({ ...p, available_qty: Number(e.target.value) }))} />
-              </div>
+              <div className="space-y-1"><Label>Gauge ±</Label><Input type="number" value={itemForm.gauge_diff} onChange={e=>setItemForm({...itemForm, gauge_diff: Number(e.target.value)})}/></div>
+              <div className="space-y-1"><Label>Stock MT</Label><Input type="number" step="0.01" value={itemForm.available_qty} onChange={e=>setItemForm({...itemForm, available_qty: Number(e.target.value)})}/></div>
             </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="item-last-rate" className="text-xs">Last Purchase Rate (Optional)</Label>
-              <Input id="item-last-rate" type="number" placeholder="e.g., 42500" value={itemForm.last_purchase_rate} onChange={(e) => setItemForm(p => ({ ...p, last_purchase_rate: e.target.value }))} />
-            </div>
-
-            <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" onClick={() => setIsItemDialogOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Matrix Item"}</Button>
-            </DialogFooter>
+            <div className="space-y-1"><Label>Last Rate (Optional)</Label><Input type="number" placeholder="42500" value={itemForm.last_purchase_rate} onChange={e=>setItemForm({...itemForm, last_purchase_rate: e.target.value})}/></div>
+            <Button type="submit" className="w-full font-bold" disabled={saving}>Save Product</Button>
           </form>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!historyItem} onOpenChange={(open) => !open && setHistoryItem(null)}>
-        <DialogContent className="sm:max-w-[450px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <History className="h-5 w-5 text-primary" /> Recent Purchases
-            </DialogTitle>
-            <DialogDescription>
-              Viewing the last 3 recorded purchases for <strong className="text-foreground">{historyItem?.name}</strong>.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="py-2">
-            {itemHistory.isLoading ? (
-              <div className="text-center py-6 text-sm text-muted-foreground">Loading recent purchases...</div>
-            ) : !itemHistory.data || itemHistory.data.length === 0 ? (
-              <div className="text-center py-6 text-sm text-muted-foreground">No purchase history found for this item.</div>
-            ) : (
-              <div className="border rounded-md overflow-hidden divide-y">
-                <div className="grid grid-cols-12 bg-muted/60 p-2.5 text-xs font-semibold text-muted-foreground">
-                  <div className="col-span-5">Vendor</div>
-                  <div className="col-span-4 text-center">Date</div>
-                  <div className="col-span-3 text-right">Rate</div>
-                </div>
-                {itemHistory.data.map((p: any, idx: number) => (
-                  <div key={idx} className="grid grid-cols-12 p-2.5 text-xs items-center hover:bg-muted/20">
-                    <div className="col-span-5 font-medium truncate pr-1 text-foreground" title={p.vendor_name}>
-                      {p.vendor_name || "Unknown Vendor"}
-                    </div>
-                    <div className="col-span-4 text-center text-muted-foreground">
-                      {p.purchase_date ? new Date(p.purchase_date).toLocaleDateString() : "—"}
-                    </div>
-                    <div className="col-span-3 text-right font-mono font-bold text-primary">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild><Button size="icon" className="fixed bottom-6 right-6 h-12 w-12 rounded-full shadow-2xl z-50"><List /></Button></DropdownMenuTrigger>
+        <DropdownMenuContent className="w-56" align="end" side="top">
+          <DropdownMenuLabel>Jump to Section</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {grouped.map(g => <DropdownMenuItem key={g.section.id} onSelect={()=>document.getElementById(`section-${g.section.id}`)?.scrollIntoView({ behavior: "smooth" })}>{g.section.name}</DropdownMenuItem>)}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
