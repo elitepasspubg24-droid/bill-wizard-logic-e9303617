@@ -198,9 +198,13 @@ function SaudasByCategory({ data, onChanged }: { data: any[]; onChanged: () => v
       const newLifted = curLifted + p.delta;
       if (newLifted < 0) throw new Error("Cannot reduce below zero");
       const capped = totalQty > 0 ? Math.min(totalQty, newLifted) : newLifted;
+      // Record only the quantity actually applied, so the uplift history always
+      // sums back to lifted_qty (no drift when a lift is capped at the total).
+      const appliedDelta = Number((capped - curLifted).toFixed(3));
+      if (!appliedDelta) throw new Error("Sauda is already fully lifted");
       const { error: e1 } = await supabase.from("sauda_uplifts").insert({
         sauda_id: p.sauda.id,
-        qty: p.delta,
+        qty: appliedDelta,
         kind: p.kind ?? "manual",
         note: p.note || null,
       });
@@ -208,8 +212,8 @@ function SaudasByCategory({ data, onChanged }: { data: any[]; onChanged: () => v
       const { error: e2 } = await supabase
         .from("saudas")
         .update({
-          lifted_qty: capped,
-          status: totalQty > 0 && capped >= totalQty ? "done" : p.sauda.status === "done" ? "open" : p.sauda.status,
+          lifted_qty: Number(capped.toFixed(3)),
+          status: totalQty > 0 && capped >= totalQty ? "done" : "open",
         })
         .eq("id", p.sauda.id);
       if (e2) throw e2;
@@ -233,6 +237,7 @@ function SaudasByCategory({ data, onChanged }: { data: any[]; onChanged: () => v
     onSuccess: () => { onChanged(); },
     onError: (e: any) => toast.error(e.message),
   });
+
 
   const grouped = new Map<string, any[]>();
   for (const s of data) {
