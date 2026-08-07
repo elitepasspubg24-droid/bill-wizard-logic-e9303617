@@ -126,6 +126,8 @@ function EditBillDialog({
       toast.success("Bill and Inventory synced");
       qc.invalidateQueries({ queryKey: ["bills"] });
       qc.invalidateQueries({ queryKey: ["items"] });
+      qc.invalidateQueries({ queryKey: ["saudas"] });
+
       onClose();
     },
     onError: (e: any) => toast.error(e.message),
