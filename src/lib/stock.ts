@@ -104,3 +104,27 @@ export async function syncItems(itemIds: string[]) {
     await syncItemStockAndRate(id);
   }
 }
+
+/**
+ * Recomputes a sauda's lifted_qty from its uplift rows and updates status.
+ * Call after any uplift is added/removed (e.g. when a linked bill is deleted).
+ */
+export async function recomputeSaudaLifted(saudaId: string) {
+  const [{ data: sauda }, { data: ups }] = await Promise.all([
+    supabase.from("saudas").select("id, total_qty").eq("id", saudaId).maybeSingle(),
+    supabase.from("sauda_uplifts").select("qty").eq("sauda_id", saudaId),
+  ]);
+  if (!sauda) return;
+
+  const lifted = (ups ?? []).reduce((a, u) => a + Number(u.qty || 0), 0);
+  const total = Number(sauda.total_qty || 0);
+  const clamped = Math.max(0, total > 0 ? Math.min(total, lifted) : lifted);
+
+  await supabase
+    .from("saudas")
+    .update({
+      lifted_qty: Number(clamped.toFixed(3)),
+      status: total > 0 && clamped >= total ? "done" : "open",
+    })
+    .eq("id", saudaId);
+}
