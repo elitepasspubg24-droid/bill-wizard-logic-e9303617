@@ -38,42 +38,8 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-// ─── Shared Helper to Sync Item Stock & Latest Rate ─────────────────────────
-async function syncItemStockAndRate(itemId: string) {
-  // 1. Calculate true available quantity from all bill_items history
-  const { data: allBillItems } = await supabase
-    .from("bill_items")
-    .select("qty, bills!inner(type)")
-    .eq("item_id", itemId);
+// Stock/rate recalculation lives in src/lib/stock.ts (single source of truth)
 
-  let newQty = 0;
-  allBillItems?.forEach((bi: any) => {
-    if (bi.bills.type === "purchase") newQty += Number(bi.qty);
-    else newQty -= Number(bi.qty);
-  });
-
-  // 2. Find the most recent non-zero purchase rate by bill_date
-  const { data: latestPurchase } = await supabase
-    .from("bill_items")
-    .select("rate, bills!inner(bill_date, created_at)")
-    .eq("item_id", itemId)
-    .eq("bills.type", "purchase")
-    .gt("rate", 0) // Ignore bills with 0 rate
-    .order("bill_date", { referencedTable: 'bills', ascending: false })
-    .order("created_at", { referencedTable: 'bills', ascending: false })
-    .limit(1);
-
-  const lastRate = latestPurchase?.[0]?.rate ?? null;
-
-  // 3. Update the items table cache with absolute truth
-  await supabase
-    .from("items")
-    .update({ 
-      available_qty: newQty, 
-      last_purchase_rate: lastRate 
-    })
-    .eq("id", itemId);
-}
 
 // ─── Edit Dialog ────────────────────────────────────────────────────────────
 
