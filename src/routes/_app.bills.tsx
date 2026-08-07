@@ -78,19 +78,28 @@ function EditBillDialog({
       originalItems?.forEach(oi => { if(oi.item_id) affectedItemIds.add(oi.item_id); });
       billItems.forEach(ni => { if(ni.item_id) affectedItemIds.add(ni.item_id); });
 
-      // 2. Update bill header
+      // 2. Update bill header (empty date must be null, not "")
       const { error: be } = await supabase
         .from("bills")
-        .update({ vendor, bill_no: billNo, bill_date: billDate })
+        .update({ vendor, bill_no: billNo, bill_date: billDate || null })
         .eq("id", bill.id);
       if (be) throw be;
 
-      // 3. Update the bill_items rows
+      // 3. Remove deleted rows, then update the remaining bill_items rows
+      const keptIds = billItems.map((bi) => bi.id).filter(Boolean);
+      const removedIds = (bill.bill_items ?? [])
+        .map((bi: any) => bi.id)
+        .filter((id: string) => !keptIds.includes(id));
+      if (removedIds.length) {
+        const { error } = await supabase.from("bill_items").delete().in("id", removedIds);
+        if (error) throw error;
+      }
+
       for (const bi of billItems) {
         if (bi.id) {
           const { error } = await supabase
             .from("bill_items")
-            .update({ qty: Number(bi.qty), rate: Number(bi.rate), item_id: bi.item_id })
+            .update({ qty: Number(bi.qty) || 0, rate: Number(bi.rate) || 0, item_id: bi.item_id })
             .eq("id", bi.id);
           if (error) throw error;
         }
@@ -100,6 +109,18 @@ function EditBillDialog({
       for (const id of Array.from(affectedItemIds)) {
         await syncItemStockAndRate(id);
       }
+
+      // 5. Keep any linked sauda uplift in step with the new bill quantity
+      const newTotal = billItems.reduce((a, bi) => a + (Number(bi.qty) || 0), 0);
+      const { data: ups } = await supabase
+        .from("sauda_uplifts")
+        .select("id, sauda_id")
+        .eq("bill_id", bill.id);
+      for (const u of ups ?? []) {
+        await supabase.from("sauda_uplifts").update({ qty: newTotal }).eq("id", u.id);
+        await recomputeSaudaLifted(u.sauda_id);
+      }
+
     },
     onSuccess: () => {
       toast.success("Bill and Inventory synced");
