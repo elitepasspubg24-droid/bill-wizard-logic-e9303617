@@ -8,7 +8,16 @@ import { format, eachDayOfInterval, startOfDay } from "date-fns";
 
 export const Route = createFileRoute("/_app/history")({
   component: HistoryPage,
+  head: () => ({
+    meta: [
+      { title: "Rate History — Steel Rate Manager" },
+      { name: "description", content: "Day-by-day log of factory basic rates and section adders." },
+      { property: "og:title", content: "Rate History — Steel Rate Manager" },
+      { property: "og:description", content: "Day-by-day log of factory basic rates and section adders." },
+    ],
+  }),
 });
+
 
 function HistoryPage() {
   const factories = useQuery({ queryKey: ["factories"], queryFn: fetchFactories });
