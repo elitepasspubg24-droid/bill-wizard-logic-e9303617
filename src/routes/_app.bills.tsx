@@ -240,15 +240,30 @@ function DeleteBillDialog({
       const { data: billItems } = await supabase.from("bill_items").select("item_id").eq("bill_id", bill.id);
       const affectedItemIds = Array.from(new Set(billItems?.map(bi => bi.item_id).filter(Boolean) as string[]));
 
-      // 1. Delete the child records and the bill
+      // 1. Remove any sauda uplift that came from this bill, so the sauda's
+      //    lifted quantity doesn't stay inflated after the bill is gone.
+      const { data: ups } = await supabase
+        .from("sauda_uplifts")
+        .select("id, sauda_id")
+        .eq("bill_id", bill.id);
+      const affectedSaudaIds = Array.from(new Set((ups ?? []).map((u) => u.sauda_id)));
+      if (ups?.length) {
+        await supabase.from("sauda_uplifts").delete().eq("bill_id", bill.id);
+      }
+
+      // 2. Delete the child records and the bill
       await supabase.from("bill_items").delete().eq("bill_id", bill.id);
       const { error } = await supabase.from("bills").delete().eq("id", bill.id);
       if (error) throw error;
 
-      // 2. Recalculate everything for affected items to fix stock and rate history
+      // 3. Recalculate everything for affected items to fix stock and rate history
       for (const id of affectedItemIds) {
         await syncItemStockAndRate(id);
       }
+      for (const id of affectedSaudaIds) {
+        await recomputeSaudaLifted(id);
+      }
+
     },
     onSuccess: () => {
       toast.success("Bill deleted and stock/rates recalculated");
