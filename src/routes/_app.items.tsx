@@ -4,7 +4,7 @@ import { useMemo, useState, useRef } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchFactories, fetchSections, fetchItems, fetchSaudas } from "@/lib/queries";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -31,7 +31,10 @@ import {
   History,
   ArrowLeftRight,
   ScanLine,
-  Loader2
+  Loader2,
+  Scale,
+  Zap,
+  AlertCircle
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -54,6 +57,8 @@ import {
   SheetTrigger,
   SheetFooter,
 } from "@/components/ui/sheet";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ItemPicker } from "@/components/ItemPicker";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useServerFn } from "@tanstack/react-start";
@@ -70,7 +75,6 @@ const ALL_COLS: { key: ColKey; label: string }[] = [
 ];
 const DEFAULT_PDF_COLS: ColKey[] = ["available_qty", "last_purchase_rate"];
 
-// UPGRADED CART ITEM WITH FACTORY & SAUDA PREVIEW METADATA
 type CartItem = {
   id: string;
   name: string;
@@ -102,6 +106,44 @@ function fileToDataUrl(file: File): Promise<string> {
     r.onerror = rej;
     r.readAsDataURL(file);
   });
+}
+
+// Helper to robustly recalculate stock qty for an item based on all history
+async function syncItemStockAndRate(itemId: string) {
+  const { data: allBillItems } = await supabase
+    .from("bill_items")
+    .select("qty, bills!inner(type)")
+    .eq("item_id", itemId);
+
+  let newQty = 0;
+  allBillItems?.forEach((bi: any) => {
+    // Purchases and positive Suspense adjustments add to stock
+    // Sales and negative Suspense adjustments reduce stock
+    if (bi.bills.type === "purchase") {
+        newQty += Number(bi.qty);
+    } else if (bi.bills.type === "sale") {
+        newQty -= Number(bi.qty);
+    } else if (bi.bills.type === "suspense") {
+        newQty += Number(bi.qty); // Suspense qty is stored with its sign (+ or -)
+    }
+  });
+
+  const { data: latestPurchase } = await supabase
+    .from("bill_items")
+    .select("rate, bills!inner(bill_date, created_at)")
+    .eq("item_id", itemId)
+    .eq("bills.type", "purchase")
+    .gt("rate", 0)
+    .order("bill_date", { referencedTable: 'bills', ascending: false })
+    .order("created_at", { referencedTable: 'bills', ascending: false })
+    .limit(1);
+
+  const lastRate = latestPurchase?.[0]?.rate ?? null;
+
+  await supabase
+    .from("items")
+    .update({ available_qty: newQty, last_purchase_rate: lastRate })
+    .eq("id", itemId);
 }
 
 function ItemsPage() {
@@ -139,6 +181,10 @@ function ItemsPage() {
   const [historyItem, setHistoryItem] = useState<any | null>(null);
   const [ledgerItem, setLedgerItem] = useState<any | null>(null);
 
+  // --- SUSPENSE LOGIC STATES ---
+  const [suspenseSearch, setSuspenseSearch] = useState("");
+  const [manualAdj, setManualAdj] = useState({ itemId: "", qty: "", type: "add" as "add" | "reduce", note: "" });
+
   const [sectionForm, setSectionForm] = useState({ id: "", name: "", factory_id: "" });
   const [itemForm, setItemForm] = useState({
     id: "",
@@ -148,6 +194,110 @@ function ItemsPage() {
     available_qty: 0,
     last_purchase_rate: "",
   });
+
+  // Fetch Suspense Ledger
+  const suspenseLedger = useQuery({
+    queryKey: ["suspense_ledger"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bill_items")
+        .select(`
+          id, qty, raw_name,
+          item:items(name),
+          bills!inner (id, notes, created_at, type)
+        `)
+        .eq("bills.type", "suspense")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data || [];
+    }
+  });
+
+  // Action: Clear all negatives
+  const handleClearNegatives = async () => {
+    const negatives = items.data?.filter(it => it.available_qty < 0) || [];
+    if (negatives.length === 0) {
+      toast.info("No items with negative stock found.");
+      return;
+    }
+
+    const tid = toast.loading(`Clearing stock for ${negatives.length} items...`);
+    try {
+      // 1. Create a System Suspense Bill
+      const { data: bill, error: bErr } = await supabase
+        .from("bills")
+        .insert({
+          type: "suspense",
+          vendor: "SYSTEM: AUTO-CLEAR",
+          notes: "Automated reset of negative quantities to zero.",
+          bill_date: new Date().toISOString().split("T")[0]
+        })
+        .select().single();
+      if (bErr) throw bErr;
+
+      // 2. Create offsetting items
+      const adjustments = negatives.map(it => ({
+        bill_id: bill.id,
+        item_id: it.id,
+        raw_name: `Stock correction from ${it.available_qty}`,
+        qty: Math.abs(it.available_qty), // If it was -5, we add +5
+        rate: 0
+      }));
+
+      const { error: iErr } = await supabase.from("bill_items").insert(adjustments);
+      if (iErr) throw iErr;
+
+      // 3. Robust recalculation
+      for (const it of negatives) {
+        await syncItemStockAndRate(it.id);
+      }
+
+      toast.success("All negative stock cleared to 0.00", { id: tid });
+      queryClient.invalidateQueries({ queryKey: ["items"] });
+      queryClient.invalidateQueries({ queryKey: ["suspense_ledger"] });
+    } catch (e: any) {
+      toast.error(e.message, { id: tid });
+    }
+  };
+
+  // Action: Manual Suspense Adjustment
+  const handleManualAdjustment = async () => {
+    if (!manualAdj.itemId || !manualAdj.qty) {
+        toast.error("Please select an item and enter quantity.");
+        return;
+    }
+    const tid = toast.loading("Applying adjustment...");
+    try {
+      const { data: bill, error: bErr } = await supabase
+        .from("bills")
+        .insert({
+          type: "suspense",
+          vendor: "SYSTEM: MANUAL",
+          notes: manualAdj.note || "Manual stock adjustment",
+          bill_date: new Date().toISOString().split("T")[0]
+        })
+        .select().single();
+      if (bErr) throw bErr;
+
+      const finalQty = manualAdj.type === "add" ? Number(manualAdj.qty) : -Number(manualAdj.qty);
+
+      await supabase.from("bill_items").insert({
+        bill_id: bill.id,
+        item_id: manualAdj.itemId,
+        qty: finalQty,
+        rate: 0
+      });
+
+      await syncItemStockAndRate(manualAdj.itemId);
+      
+      toast.success("Stock level updated", { id: tid });
+      setManualAdj({ itemId: "", qty: "", type: "add", note: "" });
+      queryClient.invalidateQueries({ queryKey: ["items"] });
+      queryClient.invalidateQueries({ queryKey: ["suspense_ledger"] });
+    } catch (e: any) {
+      toast.error(e.message, { id: tid });
+    }
+  };
 
   // Fetch last 3 purchases
   const itemHistory = useQuery({
@@ -261,7 +411,6 @@ function ItemsPage() {
     });
   }, [factories.data, sections.data, items.data, pickedTodayFactory, pickedSauda, allOpenSaudas, q, localGauges]);
 
-  // Helper to fetch filtered rows by section name for the rate list
   const getSectionRows = (sectionName: string) => {
     return grouped.find(g => g.section.name.trim().toUpperCase() === sectionName.toUpperCase())?.rows || [];
   };
@@ -352,7 +501,6 @@ function ItemsPage() {
       const newCartItems: CartItem[] = [];
       let matchedCount = 0;
 
-      // Find matched items in our current context-aware grouped view to get correct rates
       result.items.forEach((extracted) => {
         if (!extracted.matched_item_id) return;
         
@@ -408,7 +556,6 @@ function ItemsPage() {
     setCart((prev) => prev.map((i) => (i.id === id ? { ...i, qty } : i)));
   };
 
-  // --- CLEAN TEXT COPY / DOWNLOAD HELPER ---
   const getFormattedCartText = () => {
     return cart
       .map((item, idx) => {
@@ -474,7 +621,6 @@ function ItemsPage() {
     const tid = toast.loading("Switching to modern engine...");
 
     try {
-      // 1. Load the modern library from CDN
       const win = window as any;
       if (!win.htmlToImage) {
         await new Promise((resolve, reject) => {
@@ -489,15 +635,12 @@ function ItemsPage() {
       const element = document.getElementById("capture-area");
       if (!element) throw new Error("Capture area not found");
 
-      // 2. Generate Image using the modern library
-      // This library is MUCH better at handling oklch/Tailwind v4
       const dataUrl = await win.htmlToImage.toPng(element, {
         backgroundColor: '#ffffff',
         quality: 1,
         pixelRatio: 2,
       });
 
-      // 3. Download
       const link = document.createElement("a");
       link.download = "Quote.png";
       link.href = dataUrl;
@@ -698,7 +841,6 @@ function ItemsPage() {
         <div className="flex items-center gap-3">
           <h2 className="text-2xl font-bold">Items Matrix</h2>
           
-          {/* CART & AI SCAN BUTTONS */}
           <div className="flex items-center gap-2">
             <Sheet>
               <SheetTrigger asChild>
@@ -744,7 +886,6 @@ function ItemsPage() {
                         </Button>
                       </div>
                       
-                      {/* HIDDEN CONTAINER FOR IMAGE EXPORT */}
                       <div style={{ position: 'fixed', top: '-2000px', left: '0', zIndex: -100 }}>
                         <div id="capture-area" ref={cartRef} style={{ width: '600px', padding: '40px', backgroundColor: '#ffffff', color: '#000000', fontFamily: 'Arial, sans-serif' }}>
                           <div style={{ borderBottom: '3px solid #1e293b', paddingBottom: '20px', marginBottom: '30px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
@@ -784,7 +925,6 @@ function ItemsPage() {
                         </div>
                       </div>
 
-                      {/* PREVIEW CARDS */}
                       <div className="space-y-3">
                         {cart.map((item) => (
                           <div key={item.id} className="flex flex-col gap-2 p-3 border rounded-lg bg-muted/20 shadow-xs">
@@ -841,7 +981,6 @@ function ItemsPage() {
               </SheetContent>
             </Sheet>
 
-            {/* AI ENQUIRY SCANNER DIALOG */}
             <Dialog open={isScanEnquiryOpen} onOpenChange={setIsScanEnquiryOpen}>
               <DialogTrigger asChild>
                 <Button variant="outline" size="sm" className="h-9 gap-1.5 text-blue-600 border-blue-200 hover:bg-blue-50">
@@ -880,7 +1019,6 @@ function ItemsPage() {
         <div className="flex items-center gap-2 ml-auto">
           <Input placeholder="Search..." value={q} onChange={(e) => setQ(e.target.value)} className="w-32 md:w-48 h-9" />
 
-          {/* DAILY BROADCAST BUTTON */}
           <Button 
             onClick={() => setIsRateListOpen(true)} 
             size="sm" 
@@ -950,261 +1088,386 @@ function ItemsPage() {
         </div>
       </div>
 
-      {/* 📱 MOBILE VIEW: Compact Table */}
-      <div className="block md:hidden space-y-4">
-        {grouped.map(({ section, activeTodayFactory, activeFacBasic, activeFacAdder, activePartyAdder, topSauda, rows }) => (
-          <div
-            key={section.id}
-            id={`section-${section.id}`}
-            className="scroll-mt-20 border rounded-lg overflow-visible bg-background shadow-sm"
-          >
-            <table className="w-full border-collapse text-left text-[11px] table-fixed">
-              <thead className="bg-slate-50 sticky top-0 z-10 border-b shadow-xs">
-                <tr className="bg-slate-50 font-bold text-slate-800">
-                  <td colSpan={7} className="py-2 px-2 text-left rounded-t-lg">
-                    <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <div className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                            {section.name}
-                            <button onClick={() => openEditSection(section)} className="p-1 text-muted-foreground hover:text-foreground">
-                              <Edit className="h-3 w-3" />
-                            </button>
-                          </div>
-                          <div className="text-[10px] font-normal text-muted-foreground">
-                            Base: {activeFacBasic} + {activeFacAdder}
+      <Tabs defaultValue="matrix" className="w-full">
+        <TabsList className="mb-4">
+          <TabsTrigger value="matrix">Stock Matrix</TabsTrigger>
+          <TabsTrigger value="suspense" className="gap-2">
+            <Scale className="h-4 w-4" /> Suspense Account
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="matrix" className="space-y-4">
+          <div className="flex justify-end">
+            <Button variant="destructive" size="sm" onClick={handleClearNegatives} className="gap-2 shadow-sm h-9 px-4">
+              <Zap className="h-4 w-4 fill-white" /> Clear Negative Stock
+            </Button>
+          </div>
+
+          {/* 📱 MOBILE VIEW: Compact Table */}
+          <div className="block md:hidden space-y-4">
+            {grouped.map(({ section, activeTodayFactory, activeFacBasic, activeFacAdder, activePartyAdder, topSauda, rows }) => (
+              <div
+                key={section.id}
+                id={`section-${section.id}`}
+                className="scroll-mt-20 border rounded-lg overflow-visible bg-background shadow-sm"
+              >
+                <table className="w-full border-collapse text-left text-[11px] table-fixed">
+                  <thead className="bg-slate-50 sticky top-0 z-10 border-b shadow-xs">
+                    <tr className="bg-slate-50 font-bold text-slate-800">
+                      <td colSpan={7} className="py-2 px-2 text-left rounded-t-lg">
+                        <div className="flex flex-col gap-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <div className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                                {section.name}
+                                <button onClick={() => openEditSection(section)} className="p-1 text-muted-foreground hover:text-foreground">
+                                  <Edit className="h-3 w-3" />
+                                </button>
+                              </div>
+                              <div className="text-[10px] font-normal text-muted-foreground">
+                                Base: {activeFacBasic} + {activeFacAdder}
+                              </div>
+                            </div>
+                            <div className="flex flex-col gap-1 items-end">
+                              <Select
+                                value={pickedTodayFactory[section.id] ?? section.factory_id}
+                                onValueChange={(v) => setPickedTodayFactory(p => ({ ...p, [section.id]: v }))}
+                              >
+                                <SelectTrigger className="h-7 w-36 text-[10px] bg-background px-2 py-0 shadow-xs">
+                                  <SelectValue placeholder="Today Factory" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {factories.data?.map((fac: any) => {
+                                    const today = Number(fac.basic_rate ?? 0) + Number(fac.adder ?? 0);
+                                    return (
+                                      <SelectItem key={fac.id} value={fac.id} className="text-[11px]">
+                                        {fac.name} (Today: ₹{today})
+                                      </SelectItem>
+                                    );
+                                  })}
+                                </SelectContent>
+                              </Select>
+
+                              {allOpenSaudas.length > 0 && (
+                                <Select
+                                  value={pickedSauda[section.id] ?? topSauda?.id ?? ""}
+                                  onValueChange={(v) => setPickedSauda(p => ({ ...p, [section.id]: v }))}
+                                >
+                                  <SelectTrigger className="h-7 w-36 text-[10px] bg-background px-2 py-0 shadow-xs">
+                                    <SelectValue placeholder="Select Sauda" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                  {allOpenSaudas.map((o) => (
+                                    <SelectItem key={o.id} value={o.id} className="text-[11px]">
+                                      {o.party} (Basic: ₹{o.basic}) — {o.pending}T
+                                    </SelectItem>
+                                  ))}
+                                  </SelectContent>
+                                </Select>
+                              )}
+                            </div>
                           </div>
                         </div>
-                        <div className="flex flex-col gap-1 items-end">
-                          <Select
-                            value={pickedTodayFactory[section.id] ?? section.factory_id}
-                            onValueChange={(v) => setPickedTodayFactory(p => ({ ...p, [section.id]: v }))}
-                          >
-                            <SelectTrigger className="h-7 w-36 text-[10px] bg-background px-2 py-0 shadow-xs">
-                              <SelectValue placeholder="Today Factory" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {factories.data?.map((fac: any) => {
-                                const today = Number(fac.basic_rate ?? 0) + Number(fac.adder ?? 0);
-                                return (
-                                  <SelectItem key={fac.id} value={fac.id} className="text-[11px]">
-                                    {fac.name} (Today: ₹{today})
-                                  </SelectItem>
-                                );
-                              })}
-                            </SelectContent>
-                          </Select>
-
-                          {allOpenSaudas.length > 0 && (
-                            <Select
-                              value={pickedSauda[section.id] ?? topSauda?.id ?? ""}
-                              onValueChange={(v) => setPickedSauda(p => ({ ...p, [section.id]: v }))}
+                      </td>
+                    </tr>
+                    <tr className="text-muted-foreground font-semibold bg-muted/50 border-t">
+                      <th className="py-2 px-1 pl-2 w-[28%] text-left">Item</th>
+                      <th className="py-2 px-1 text-right w-[9%]">±</th>
+                      <th className="py-2 px-1 text-right w-[14%] bg-primary/5 text-primary font-bold">Today</th>
+                      <th className="py-2 px-1 text-right w-[14%]">Sauda</th>
+                      <th className="py-2 px-1 text-right w-[12%]">Party</th>
+                      <th className="py-2 px-1 text-right w-[12%]">Stock</th>
+                      <th className="py-2 px-1 text-right pr-2 w-[11%]">Last</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {rows.map((r) => {
+                      const isInCart = cart.some(ci => ci.id === r.id);
+                      return (
+                        <tr key={r.id} className={`hover:bg-muted/5 group ${isInCart ? "bg-primary/[0.03]" : ""}`}>
+                          <td className="py-2 px-1 pl-2 font-medium text-foreground break-words">
+                            <div className="flex items-center gap-1">
+                              <button 
+                                onClick={() => toggleCart(r, section.name, { activeTodayFactory, activeFacBasic, activeFacAdder, activePartyAdder, topSauda })} 
+                                className={`p-1 rounded-md transition-colors ${isInCart ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-primary"}`}
+                              >
+                                <ShoppingCart className="h-3 w-3" />
+                              </button>
+                              <span>{r.name}</span>
+                              <button onClick={() => openEditItem(r)} className="opacity-40 group-hover:opacity-100 p-0.5 text-muted-foreground hover:text-foreground transition-opacity">
+                                <Edit className="h-2.5 w-2.5" />
+                              </button>
+                            </div>
+                          </td>
+                          <td className="py-2 px-1 text-right font-mono text-muted-foreground whitespace-nowrap">{r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff}</td>
+                          <td className="py-2 px-1 text-right font-mono font-bold text-primary bg-primary/[0.01] whitespace-nowrap">{r.today.toFixed(0)}</td>
+                          <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
+                          <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.party.toFixed(0)}</td>
+                          <td className="py-2 px-1 text-right font-mono font-semibold text-foreground whitespace-nowrap">
+                            <button
+                              onClick={() => setLedgerItem(r)}
+                              className="text-foreground underline underline-offset-2 decoration-muted-foreground/30 hover:text-primary transition-colors focus:outline-hidden"
                             >
-                              <SelectTrigger className="h-7 w-36 text-[10px] bg-background px-2 py-0 shadow-xs">
-                                <SelectValue placeholder="Select Sauda" />
-                              </SelectTrigger>
-                              <SelectContent>
+                              {Number(r.available_qty).toFixed(1)}t
+                            </button>
+                          </td>
+                          <td className="py-2 px-1 text-right pr-2 font-mono text-muted-foreground whitespace-nowrap">
+                            <button
+                              onClick={() => setHistoryItem(r)}
+                              className="text-primary underline-offset-2 hover:underline font-semibold focus:outline-hidden"
+                            >
+                              {r.last_purchase_rate != null ? r.last_purchase_rate : "—"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </div>
+
+          {/* 💻 DESKTOP VIEW: Spacious Table */}
+          <div className="hidden md:block space-y-4">
+            {grouped.map(({ section, activeTodayFactory, activeFacBasic, activeFacAdder, activePartyAdder, topSauda, rows }) => (
+              <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20 overflow-visible">
+                <div className="sticky top-14 z-20 bg-card border-b shadow-xs rounded-t-lg">
+                  <div className="p-4 pb-2 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base font-bold text-foreground">{section.name}</h3>
+                        <Button onClick={() => openEditSection(section)} variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground">
+                          <Edit className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      <span className="text-xs font-normal text-muted-foreground">
+                        ({activeTodayFactory?.name} Basic: ₹{activeFacBasic} + Adder: ₹{activeFacAdder})
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2 text-xs font-normal">
+                        <span className="text-muted-foreground">Today's Factory:</span>
+                        <Select
+                          value={pickedTodayFactory[section.id] ?? section.factory_id}
+                          onValueChange={(v) => setPickedTodayFactory(p => ({ ...p, [section.id]: v }))}
+                        >
+                          <SelectTrigger className="h-8 w-48 text-xs bg-background"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {factories.data?.map((f: any) => {
+                              const today = Number(f.basic_rate ?? 0) + Number(f.adder ?? 0);
+                              return (
+                                <SelectItem key={f.id} value={f.id}>
+                                  {f.name} (Today: ₹{today})
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {allOpenSaudas.length > 0 && (
+                        <div className="flex items-center gap-2 text-xs font-normal">
+                          <span className="text-muted-foreground">Selected Sauda:</span>
+                          <Select
+                            value={pickedSauda[section.id] ?? topSauda?.id ?? ""}
+                            onValueChange={(v) => setPickedSauda(p => ({ ...p, [section.id]: v }))}
+                          >
+                            <SelectTrigger className="h-8 w-64 text-xs bg-background"><SelectValue /></SelectTrigger>
+                            <SelectContent>
                               {allOpenSaudas.map((o) => (
-                                <SelectItem key={o.id} value={o.id} className="text-[11px]">
+                                <SelectItem key={o.id} value={o.id} className="text-xs">
                                   {o.party} (Basic: ₹{o.basic}) — {o.pending}T
                                 </SelectItem>
                               ))}
-                              </SelectContent>
-                            </Select>
-                          )}
+                            </SelectContent>
+                          </Select>
                         </div>
-                      </div>
+                      )}
                     </div>
-                  </td>
-                </tr>
-                <tr className="text-muted-foreground font-semibold bg-muted/50 border-t">
-                  <th className="py-2 px-1 pl-2 w-[28%] text-left">Item</th>
-                  <th className="py-2 px-1 text-right w-[9%]">±</th>
-                  <th className="py-2 px-1 text-right w-[14%] bg-primary/5 text-primary font-bold">Today</th>
-                  <th className="py-2 px-1 text-right w-[14%]">Sauda</th>
-                  <th className="py-2 px-1 text-right w-[12%]">Party</th>
-                  <th className="py-2 px-1 text-right w-[12%]">Stock</th>
-                  <th className="py-2 px-1 text-right pr-2 w-[11%]">Last</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {rows.map((r) => {
-                   const isInCart = cart.some(ci => ci.id === r.id);
-                   return (
-                    <tr key={r.id} className={`hover:bg-muted/5 group ${isInCart ? "bg-primary/[0.03]" : ""}`}>
-                      <td className="py-2 px-1 pl-2 font-medium text-foreground break-words">
-                        <div className="flex items-center gap-1">
-                          <button 
-                            onClick={() => toggleCart(r, section.name, { activeTodayFactory, activeFacBasic, activeFacAdder, activePartyAdder, topSauda })} 
-                            className={`p-1 rounded-md transition-colors ${isInCart ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-primary"}`}
-                          >
-                            <ShoppingCart className="h-3 w-3" />
-                          </button>
-                          <span>{r.name}</span>
-                          <button onClick={() => openEditItem(r)} className="opacity-40 group-hover:opacity-100 p-0.5 text-muted-foreground hover:text-foreground transition-opacity">
-                            <Edit className="h-2.5 w-2.5" />
-                          </button>
-                        </div>
-                      </td>
-                      <td className="py-2 px-1 text-right font-mono text-muted-foreground whitespace-nowrap">{r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff}</td>
-                      <td className="py-2 px-1 text-right font-mono font-bold text-primary bg-primary/[0.01] whitespace-nowrap">{r.today.toFixed(0)}</td>
-                      <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</td>
-                      <td className="py-2 px-1 text-right font-mono text-foreground whitespace-nowrap">{r.party.toFixed(0)}</td>
-                      <td className="py-2 px-1 text-right font-mono font-semibold text-foreground whitespace-nowrap">
-                        <button
-                          onClick={() => setLedgerItem(r)}
-                          className="text-foreground underline underline-offset-2 decoration-muted-foreground/30 hover:text-primary transition-colors focus:outline-hidden"
-                        >
-                          {Number(r.available_qty).toFixed(1)}t
-                        </button>
-                      </td>
-                      <td className="py-2 px-1 text-right pr-2 font-mono text-muted-foreground whitespace-nowrap">
-                        <button
-                          onClick={() => setHistoryItem(r)}
-                          className="text-primary underline-offset-2 hover:underline font-semibold focus:outline-hidden"
-                        >
-                          {r.last_purchase_rate != null ? r.last_purchase_rate : "—"}
-                        </button>
-                      </td>
-                    </tr>
-                   );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ))}
-      </div>
-
-      {/* 💻 DESKTOP VIEW: Spacious Table */}
-      <div className="hidden md:block space-y-4">
-        {grouped.map(({ section, activeTodayFactory, activeFacBasic, activeFacAdder, activePartyAdder, topSauda, rows }) => (
-          <Card key={section.id} id={`section-${section.id}`} className="scroll-mt-20 overflow-visible">
-            <div className="sticky top-14 z-20 bg-card border-b shadow-xs rounded-t-lg">
-              <div className="p-4 pb-2 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-col">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-base font-bold text-foreground">{section.name}</h3>
-                    <Button onClick={() => openEditSection(section)} variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-foreground">
-                      <Edit className="h-3.5 w-3.5" />
-                    </Button>
                   </div>
-                  <span className="text-xs font-normal text-muted-foreground">
-                    ({activeTodayFactory?.name} Basic: ₹{activeFacBasic} + Adder: ₹{activeFacAdder})
-                  </span>
+
+                  <div className="px-4 py-2 flex text-xs font-semibold text-muted-foreground bg-muted/20 border-t">
+                    <div className="w-[24%] text-left">Item Name</div>
+                    <div className="w-[10%] text-right pr-2">Gauge Diff</div>
+                    <div className="w-[13%] text-right">Today's Rate</div>
+                    <div className="w-[13%] text-right">Sauda Rate</div>
+                    <div className="w-[13%] text-right">Party Rate</div>
+                    <div className="w-[13%] text-right">Available Qty</div>
+                    <div className="w-[14%] text-right pr-1">Last Purchase</div>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2 text-xs font-normal">
-                    <span className="text-muted-foreground">Today's Factory:</span>
-                    <Select
-                      value={pickedTodayFactory[section.id] ?? section.factory_id}
-                      onValueChange={(v) => setPickedTodayFactory(p => ({ ...p, [section.id]: v }))}
-                    >
-                      <SelectTrigger className="h-8 w-48 text-xs bg-background"><SelectValue /></SelectTrigger>
+                <CardContent className="p-0">
+                  <div className="divide-y text-sm">
+                    {rows.map((r) => {
+                      const isInCart = cart.some(ci => ci.id === r.id);
+                      return (
+                        <div key={r.id} className={`flex px-4 py-2.5 items-center hover:bg-muted/10 transition-colors group ${isInCart ? "bg-primary/[0.03]" : ""}`}>
+                          <div className="w-[24%] text-left font-medium pr-2 text-slate-900 flex items-center gap-2">
+                            <button 
+                              onClick={() => toggleCart(r, section.name, { activeTodayFactory, activeFacBasic, activeFacAdder, activePartyAdder, topSauda })} 
+                              className={`p-1.5 rounded-md transition-colors ${isInCart ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-primary hover:bg-muted"}`}
+                            >
+                              <ShoppingCart className="h-3.5 w-3.5" />
+                            </button>
+                            <span>{r.name}</span>
+                            <Button onClick={() => openEditItem(r)} variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity">
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                          </div>
+
+                          <div className="w-[10%] text-right text-muted-foreground font-mono pr-2 flex justify-end items-center">
+                            {isEditingGauges ? (
+                              <Input
+                                type="number"
+                                value={r.gauge_diff}
+                                onChange={(e) => setLocalGauges((p) => ({ ...p, [r.id]: Number(e.target.value) }))}
+                                className="h-7 w-16 text-right text-xs p-1 bg-background border-primary/40 font-mono font-medium"
+                              />
+                            ) : (
+                              r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff
+                            )}
+                          </div>
+
+                          <div className="w-[13%] text-right font-mono font-bold text-primary">{r.today.toFixed(0)}</div>
+                          <div className="w-[13%] text-right font-mono text-slate-700">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</div>
+                          <div className="w-[13%] text-right font-mono text-slate-700">{r.party.toFixed(0)}</div>
+                          <div className="w-[13%] text-right text-slate-900 font-medium">
+                            <button
+                              onClick={() => setLedgerItem(r)}
+                              className="hover:text-primary underline decoration-muted-foreground/20 underline-offset-4 cursor-pointer transition-colors focus:outline-hidden"
+                            >
+                              {Number(r.available_qty).toFixed(2)} MT
+                            </button>
+                          </div>
+                          <div className="w-[14%] text-right font-mono pr-1">
+                            <button
+                              onClick={() => setHistoryItem(r)}
+                              className="text-primary hover:text-primary/80 underline underline-offset-4 cursor-pointer font-semibold transition-colors focus:outline-hidden"
+                            >
+                              {r.last_purchase_rate != null ? r.last_purchase_rate : "—"}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="suspense" className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card className="md:col-span-1">
+              <CardHeader className="pb-3 border-b bg-muted/20">
+                <CardTitle className="text-sm font-bold uppercase tracking-wider">Manual Adjustment</CardTitle>
+                <CardDescription>Manually add or reduce stock quantities via the Suspense Account.</CardDescription>
+              </CardHeader>
+              <CardContent className="pt-4 space-y-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Product Item</Label>
+                  <ItemPicker 
+                    items={items.data || []} 
+                    sections={sections.data || []} 
+                    value={manualAdj.itemId} 
+                    onChange={(id) => setManualAdj(p => ({ ...p, itemId: id || "" }))}
+                    width="w-full"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Quantity (MT)</Label>
+                    <Input 
+                      type="number" 
+                      placeholder="0.00" 
+                      value={manualAdj.qty} 
+                      onChange={(e) => setManualAdj(p => ({ ...p, qty: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Action</Label>
+                    <Select value={manualAdj.type} onValueChange={(v: any) => setManualAdj(p => ({ ...p, type: v }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {factories.data?.map((f: any) => {
-                          const today = Number(f.basic_rate ?? 0) + Number(f.adder ?? 0);
-                          return (
-                            <SelectItem key={f.id} value={f.id}>
-                              {f.name} (Today: ₹{today})
-                            </SelectItem>
-                          );
-                        })}
+                        <SelectItem value="add">Add (+)</SelectItem>
+                        <SelectItem value="reduce">Reduce (-)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
-
-                  {allOpenSaudas.length > 0 && (
-                    <div className="flex items-center gap-2 text-xs font-normal">
-                      <span className="text-muted-foreground">Selected Sauda:</span>
-                      <Select
-                        value={pickedSauda[section.id] ?? topSauda?.id ?? ""}
-                        onValueChange={(v) => setPickedSauda(p => ({ ...p, [section.id]: v }))}
-                      >
-                        <SelectTrigger className="h-8 w-64 text-xs bg-background"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {allOpenSaudas.map((o) => (
-                            <SelectItem key={o.id} value={o.id} className="text-xs">
-                              {o.party} (Basic: ₹{o.basic}) — {o.pending}T
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
                 </div>
-              </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Adjustment Reason</Label>
+                  <Input 
+                    placeholder="Reason for change..." 
+                    value={manualAdj.note} 
+                    onChange={(e) => setManualAdj(p => ({ ...p, note: e.target.value }))}
+                  />
+                </div>
+                <Button className="w-full" onClick={handleManualAdjustment} disabled={!manualAdj.itemId || !manualAdj.qty}>
+                  Apply Adjustment
+                </Button>
+              </CardContent>
+            </Card>
 
-              <div className="px-4 py-2 flex text-xs font-semibold text-muted-foreground bg-muted/20 border-t">
-                <div className="w-[24%] text-left">Item Name</div>
-                <div className="w-[10%] text-right pr-2">Gauge Diff</div>
-                <div className="w-[13%] text-right">Today's Rate</div>
-                <div className="w-[13%] text-right">Sauda Rate</div>
-                <div className="w-[13%] text-right">Party Rate</div>
-                <div className="w-[13%] text-right">Available Qty</div>
-                <div className="w-[14%] text-right pr-1">Last Purchase</div>
-              </div>
-            </div>
-
-            <CardContent className="p-0">
-              <div className="divide-y text-sm">
-                {rows.map((r) => {
-                  const isInCart = cart.some(ci => ci.id === r.id);
-                  return (
-                    <div key={r.id} className={`flex px-4 py-2.5 items-center hover:bg-muted/10 transition-colors group ${isInCart ? "bg-primary/[0.03]" : ""}`}>
-                      <div className="w-[24%] text-left font-medium pr-2 text-slate-900 flex items-center gap-2">
-                        <button 
-                          onClick={() => toggleCart(r, section.name, { activeTodayFactory, activeFacBasic, activeFacAdder, activePartyAdder, topSauda })} 
-                          className={`p-1.5 rounded-md transition-colors ${isInCart ? "text-primary bg-primary/10" : "text-muted-foreground hover:text-primary hover:bg-muted"}`}
-                        >
-                          <ShoppingCart className="h-3.5 w-3.5" />
-                        </button>
-                        <span>{r.name}</span>
-                        <Button onClick={() => openEditItem(r)} variant="ghost" size="icon" className="h-5 w-5 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity">
-                          <Edit className="h-3 w-3" />
-                        </Button>
-                      </div>
-
-                      <div className="w-[10%] text-right text-muted-foreground font-mono pr-2 flex justify-end items-center">
-                        {isEditingGauges ? (
-                          <Input
-                            type="number"
-                            value={r.gauge_diff}
-                            onChange={(e) => setLocalGauges((p) => ({ ...p, [r.id]: Number(e.target.value) }))}
-                            className="h-7 w-16 text-right text-xs p-1 bg-background border-primary/40 font-mono font-medium"
-                          />
-                        ) : (
-                          r.gauge_diff > 0 ? `+${r.gauge_diff}` : r.gauge_diff
-                        )}
-                      </div>
-
-                      <div className="w-[13%] text-right font-mono font-bold text-primary">{r.today.toFixed(0)}</div>
-                      <div className="w-[13%] text-right font-mono text-slate-700">{r.sauda === null ? "—" : r.sauda.toFixed(0)}</div>
-                      <div className="w-[13%] text-right font-mono text-slate-700">{r.party.toFixed(0)}</div>
-                      <div className="w-[13%] text-right text-slate-900 font-medium">
-                        <button
-                          onClick={() => setLedgerItem(r)}
-                          className="hover:text-primary underline decoration-muted-foreground/20 underline-offset-4 cursor-pointer transition-colors focus:outline-hidden"
-                        >
-                          {Number(r.available_qty).toFixed(2)} MT
-                        </button>
-                      </div>
-                      <div className="w-[14%] text-right font-mono pr-1">
-                        <button
-                          onClick={() => setHistoryItem(r)}
-                          className="text-primary hover:text-primary/80 underline underline-offset-4 cursor-pointer font-semibold transition-colors focus:outline-hidden"
-                        >
-                          {r.last_purchase_rate != null ? r.last_purchase_rate : "—"}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+            <Card className="md:col-span-2">
+              <CardHeader className="pb-3 border-b bg-muted/20 flex flex-row items-center justify-between">
+                <div>
+                    <CardTitle className="text-sm font-bold uppercase tracking-wider">Adjustment History</CardTitle>
+                    <CardDescription>Review all system-level stock corrections.</CardDescription>
+                </div>
+                <div className="relative w-48">
+                  <Input 
+                    placeholder="Search adjustment..." 
+                    className="h-8 text-xs pl-8" 
+                    value={suspenseSearch}
+                    onChange={(e) => setSuspenseSearch(e.target.value)}
+                  />
+                  <List className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="max-h-[500px] overflow-y-auto">
+                  <table className="w-full text-sm text-left border-collapse">
+                    <thead className="bg-muted/50 border-b text-[10px] uppercase font-bold text-muted-foreground sticky top-0 z-10">
+                      <tr>
+                        <th className="px-4 py-3">Timestamp</th>
+                        <th className="px-4 py-3">Product Name</th>
+                        <th className="px-4 py-3 text-right">Adjustment</th>
+                        <th className="px-4 py-3">Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {suspenseLedger.data?.filter(l => 
+                        (l.item as any)?.name.toLowerCase().includes(suspenseSearch.toLowerCase())
+                      ).map((log) => (
+                        <tr key={log.id} className="hover:bg-muted/20 transition-colors">
+                          <td className="px-4 py-3 text-muted-foreground text-[11px] font-mono">
+                            {new Date(log.bills.created_at).toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3 font-semibold">{(log.item as any)?.name}</td>
+                          <td className={`px-4 py-3 text-right font-mono font-bold ${Number(log.qty) > 0 ? "text-emerald-600" : "text-red-600"}`}>
+                            {Number(log.qty) > 0 ? "+" : ""}{Number(log.qty).toFixed(3)} MT
+                          </td>
+                          <td className="px-4 py-3 text-xs text-muted-foreground italic max-w-[200px] truncate">
+                            {log.bills.notes || "—"}
+                          </td>
+                        </tr>
+                      ))}
+                      {(!suspenseLedger.data || suspenseLedger.data.length === 0) && (
+                        <tr><td colSpan={4} className="p-12 text-center text-muted-foreground italic">No adjustments found.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {/* --- DIALOGS (Section/Item) --- */}
       <Dialog open={isSectionDialogOpen} onOpenChange={setIsSectionDialogOpen}>
@@ -1359,17 +1622,28 @@ function ItemsPage() {
                 {itemLedger.data.map((entry: any, idx: number) => {
                   const bill = entry.bills;
                   const isPurchase = bill.type === "purchase";
+                  const isSuspense = bill.type === "suspense";
+
                   return (
-                    <div key={idx} className="grid grid-cols-12 p-2.5 text-xs items-center hover:bg-muted/10 transition-colors">
+                    <div key={idx} className={`grid grid-cols-12 p-2.5 text-xs items-center hover:bg-muted/10 transition-colors ${isSuspense ? "bg-amber-50/40" : ""}`}>
                       <div className="col-span-3 text-muted-foreground font-medium">
                         {bill.bill_date ? new Date(bill.bill_date).toLocaleDateString("en-IN", { day: '2-digit', month: 'short' }) : "—"}
                       </div>
-                      <div className="col-span-5 font-semibold truncate pr-2 text-slate-800" title={bill.vendor}>
-                        {bill.vendor || "Direct Entry"}
+                      <div className="col-span-5 font-semibold truncate pr-2 text-slate-800">
+                        {isSuspense ? (
+                            <span className="flex items-center gap-1 text-amber-700">
+                                <Scale className="h-3 w-3" /> Suspense Correction
+                            </span>
+                        ) : (
+                            bill.vendor || "Direct Entry"
+                        )}
                       </div>
                       <div className="col-span-4 text-right">
-                        <span className={`font-mono font-bold px-1.5 py-0.5 rounded-sm ${isPurchase ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>
-                          {isPurchase ? "+" : "-"}{Number(entry.qty).toFixed(2)} MT
+                        <span className={`font-mono font-bold px-1.5 py-0.5 rounded-sm ${
+                            isSuspense ? "bg-amber-100 text-amber-800" :
+                            isPurchase ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"
+                        }`}>
+                          {isPurchase || (isSuspense && Number(entry.qty) > 0) ? "+" : ""}{Number(entry.qty).toFixed(2)} MT
                         </span>
                       </div>
                     </div>
