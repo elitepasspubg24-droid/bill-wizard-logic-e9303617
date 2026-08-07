@@ -90,8 +90,9 @@ type CartItem = {
   todayBasic?: number;
   todayAdder?: number;
   partyAdder?: number;
-  saudaName?: string;
-  saudaBasic?: number;
+  saudaName?: string | null;
+  saudaBasic?: number | null;
+
 };
 
 export const Route = createFileRoute("/_app/items")({
