@@ -84,11 +84,13 @@ function AnalysisPage() {
             totalInwardMT += qty;
             dateWiseData[dStr].inward += qty;
             if (itemId && movementByItem[itemId]) movementByItem[itemId].inward += qty;
-          } else {
+          } else if (bill.type === "sale") {
             totalOutwardMT += qty;
             dateWiseData[dStr].outward += qty;
             if (itemId && movementByItem[itemId]) movementByItem[itemId].outward += qty;
           }
+          // other types (e.g. suspense corrections) are stock adjustments, not trade
+
         });
       }
     });

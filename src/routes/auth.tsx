@@ -8,7 +8,17 @@ import { toast } from "sonner";
 
 export const Route = createFileRoute("/auth")({
   component: AuthPage,
+  head: () => ({
+    meta: [
+      { title: "Sign In — Steel Rate Manager" },
+      { name: "description", content: "Private sign-in for the steel rate and stock management app." },
+      { property: "og:title", content: "Sign In — Steel Rate Manager" },
+      { property: "og:description", content: "Private sign-in for the steel rate and stock management app." },
+      { name: "robots", content: "noindex" },
+    ],
+  }),
 });
+
 
 function AuthPage() {
   const navigate = useNavigate();

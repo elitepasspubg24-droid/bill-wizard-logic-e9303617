@@ -24,13 +24,17 @@ function RatesPage() {
   const [newFactoryName, setNewFactoryName] = useState("");
   const [newFactoryRate, setNewFactoryRate] = useState("");
 
+  // Seed inputs from saved rates, but never overwrite what the user is
+  // currently typing (background refetches used to wipe unsaved edits).
   useEffect(() => {
-    if (factories.data) {
-      const initial: Record<string, string> = {};
-      for (const f of factories.data) initial[f.id] = String(f.basic_rate);
-      setFactoryRates(initial);
-    }
+    if (!factories.data) return;
+    setFactoryRates((prev) => {
+      const next: Record<string, string> = {};
+      for (const f of factories.data) next[f.id] = prev[f.id] ?? String(f.basic_rate);
+      return next;
+    });
   }, [factories.data]);
+
 
   const adjustAllRates = (amount: number) => {
     setFactoryRates((prev) => {

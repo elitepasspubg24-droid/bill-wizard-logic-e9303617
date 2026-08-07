@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState, useMemo } from "react";
 import { fetchBills, fetchItems, fetchSaudas, fetchSections } from "@/lib/queries";
-import { syncItemStockAndRate } from "@/lib/stock";
+import { syncItemStockAndRate, recomputeSaudaLifted } from "@/lib/stock";
 
 import { ItemPicker } from "@/components/ItemPicker";
 import { supabase } from "@/integrations/supabase/client";
@@ -78,19 +78,28 @@ function EditBillDialog({
       originalItems?.forEach(oi => { if(oi.item_id) affectedItemIds.add(oi.item_id); });
       billItems.forEach(ni => { if(ni.item_id) affectedItemIds.add(ni.item_id); });
 
-      // 2. Update bill header
+      // 2. Update bill header (empty date must be null, not "")
       const { error: be } = await supabase
         .from("bills")
-        .update({ vendor, bill_no: billNo, bill_date: billDate })
+        .update({ vendor, bill_no: billNo, bill_date: billDate || null })
         .eq("id", bill.id);
       if (be) throw be;
 
-      // 3. Update the bill_items rows
+      // 3. Remove deleted rows, then update the remaining bill_items rows
+      const keptIds = billItems.map((bi) => bi.id).filter(Boolean);
+      const removedIds = (bill.bill_items ?? [])
+        .map((bi: any) => bi.id)
+        .filter((id: string) => !keptIds.includes(id));
+      if (removedIds.length) {
+        const { error } = await supabase.from("bill_items").delete().in("id", removedIds);
+        if (error) throw error;
+      }
+
       for (const bi of billItems) {
         if (bi.id) {
           const { error } = await supabase
             .from("bill_items")
-            .update({ qty: Number(bi.qty), rate: Number(bi.rate), item_id: bi.item_id })
+            .update({ qty: Number(bi.qty) || 0, rate: Number(bi.rate) || 0, item_id: bi.item_id })
             .eq("id", bi.id);
           if (error) throw error;
         }
@@ -100,11 +109,25 @@ function EditBillDialog({
       for (const id of Array.from(affectedItemIds)) {
         await syncItemStockAndRate(id);
       }
+
+      // 5. Keep any linked sauda uplift in step with the new bill quantity
+      const newTotal = billItems.reduce((a, bi) => a + (Number(bi.qty) || 0), 0);
+      const { data: ups } = await supabase
+        .from("sauda_uplifts")
+        .select("id, sauda_id")
+        .eq("bill_id", bill.id);
+      for (const u of ups ?? []) {
+        await supabase.from("sauda_uplifts").update({ qty: newTotal }).eq("id", u.id);
+        await recomputeSaudaLifted(u.sauda_id);
+      }
+
     },
     onSuccess: () => {
       toast.success("Bill and Inventory synced");
       qc.invalidateQueries({ queryKey: ["bills"] });
       qc.invalidateQueries({ queryKey: ["items"] });
+      qc.invalidateQueries({ queryKey: ["saudas"] });
+
       onClose();
     },
     onError: (e: any) => toast.error(e.message),
@@ -131,7 +154,9 @@ function EditBillDialog({
                     <th className="p-2">Match Item</th>
                     <th className="p-2 w-28">Qty (MT)</th>
                     <th className="p-2 w-32">Rate</th>
+                    <th className="p-2 w-10"></th>
                   </tr>
+
                 </thead>
                 <tbody>
                   {billItems.map((bi, i) => (
@@ -175,7 +200,20 @@ function EditBillDialog({
                           className="font-mono h-10 text-base sm:text-sm"
                         />
                       </td>
+                      <td className="p-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive"
+                          title="Remove this line"
+                          onClick={() => setBillItems(billItems.filter((_, idx) => idx !== i))}
+                        >
+                          ✕
+                        </Button>
+                      </td>
                     </tr>
+
                   ))}
                 </tbody>
                 <tfoot className="bg-muted/30 font-bold border-t">
@@ -219,20 +257,37 @@ function DeleteBillDialog({
       const { data: billItems } = await supabase.from("bill_items").select("item_id").eq("bill_id", bill.id);
       const affectedItemIds = Array.from(new Set(billItems?.map(bi => bi.item_id).filter(Boolean) as string[]));
 
-      // 1. Delete the child records and the bill
+      // 1. Remove any sauda uplift that came from this bill, so the sauda's
+      //    lifted quantity doesn't stay inflated after the bill is gone.
+      const { data: ups } = await supabase
+        .from("sauda_uplifts")
+        .select("id, sauda_id")
+        .eq("bill_id", bill.id);
+      const affectedSaudaIds = Array.from(new Set((ups ?? []).map((u) => u.sauda_id)));
+      if (ups?.length) {
+        await supabase.from("sauda_uplifts").delete().eq("bill_id", bill.id);
+      }
+
+      // 2. Delete the child records and the bill
       await supabase.from("bill_items").delete().eq("bill_id", bill.id);
       const { error } = await supabase.from("bills").delete().eq("id", bill.id);
       if (error) throw error;
 
-      // 2. Recalculate everything for affected items to fix stock and rate history
+      // 3. Recalculate everything for affected items to fix stock and rate history
       for (const id of affectedItemIds) {
         await syncItemStockAndRate(id);
       }
+      for (const id of affectedSaudaIds) {
+        await recomputeSaudaLifted(id);
+      }
+
     },
     onSuccess: () => {
       toast.success("Bill deleted and stock/rates recalculated");
       qc.invalidateQueries({ queryKey: ["bills"] });
       qc.invalidateQueries({ queryKey: ["items"] });
+      qc.invalidateQueries({ queryKey: ["saudas"] });
+
       onClose();
     },
     onError: (e: any) => toast.error(e.message),
