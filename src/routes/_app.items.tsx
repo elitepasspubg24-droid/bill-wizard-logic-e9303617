@@ -4,6 +4,8 @@ import { useMemo, useState, useRef } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchFactories, fetchSections, fetchItems, fetchSaudas } from "@/lib/queries";
+import { syncItemStockAndRate, fetchItemLedger, fetchItemPurchaseHistory } from "@/lib/stock";
+
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -90,8 +92,9 @@ type CartItem = {
   todayBasic?: number;
   todayAdder?: number;
   partyAdder?: number;
-  saudaName?: string;
-  saudaBasic?: number;
+  saudaName?: string | null;
+  saudaBasic?: number | null;
+
 };
 
 export const Route = createFileRoute("/_app/items")({
@@ -108,43 +111,8 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-// Helper to robustly recalculate stock qty for an item based on all history
-async function syncItemStockAndRate(itemId: string) {
-  const { data: allBillItems } = await supabase
-    .from("bill_items")
-    .select("qty, bills!inner(type)")
-    .eq("item_id", itemId);
+// Stock/rate recalculation lives in src/lib/stock.ts (single source of truth)
 
-  let newQty = 0;
-  allBillItems?.forEach((bi: any) => {
-    // Purchases and positive Suspense adjustments add to stock
-    // Sales and negative Suspense adjustments reduce stock
-    if (bi.bills.type === "purchase") {
-        newQty += Number(bi.qty);
-    } else if (bi.bills.type === "sale") {
-        newQty -= Number(bi.qty);
-    } else if (bi.bills.type === "suspense") {
-        newQty += Number(bi.qty); // Suspense qty is stored with its sign (+ or -)
-    }
-  });
-
-  const { data: latestPurchase } = await supabase
-    .from("bill_items")
-    .select("rate, bills!inner(bill_date, created_at)")
-    .eq("item_id", itemId)
-    .eq("bills.type", "purchase")
-    .gt("rate", 0)
-    .order("bill_date", { referencedTable: 'bills', ascending: false })
-    .order("created_at", { referencedTable: 'bills', ascending: false })
-    .limit(1);
-
-  const lastRate = latestPurchase?.[0]?.rate ?? null;
-
-  await supabase
-    .from("items")
-    .update({ available_qty: newQty, last_purchase_rate: lastRate })
-    .eq("id", itemId);
-}
 
 function ItemsPage() {
   const factories = useQuery({ queryKey: ["factories"], queryFn: fetchFactories });
@@ -299,48 +267,20 @@ function ItemsPage() {
     }
   };
 
-  // Fetch last 3 purchases
+  // Fetch last 3 purchases (newest first — sorted client-side, see lib/stock.ts)
   const itemHistory = useQuery({
     queryKey: ["item_history", historyItem?.id],
-    queryFn: async () => {
-      if (!historyItem?.id) return [];
-      const { data, error } = await supabase
-        .from("purchase_history")
-        .select("vendor_name, purchase_date, rate")
-        .eq("item_id", historyItem.id)
-        .order("purchase_date", { ascending: false })
-        .limit(3);
-      return data || [];
-    },
+    queryFn: async () => (historyItem?.id ? fetchItemPurchaseHistory(historyItem.id, 3) : []),
     enabled: !!historyItem,
   });
 
-  // Fetch last 10 activities (ledger)
+  // Fetch last 10 activities (ledger, newest first)
   const itemLedger = useQuery({
     queryKey: ["item_ledger", ledgerItem?.id],
-    queryFn: async () => {
-      if (!ledgerItem?.id) return [];
-      const { data, error } = await supabase
-        .from("bill_items")
-        .select(`
-          qty,
-          bills!inner (
-            bill_date,
-            vendor,
-            type,
-            created_at
-          )
-        `)
-        .eq("item_id", ledgerItem.id)
-        .order("bill_date", { referencedTable: 'bills', ascending: false })
-        .order("created_at", { referencedTable: 'bills', ascending: false })
-        .limit(10);
-      
-      if (error) throw error;
-      return data || [];
-    },
+    queryFn: async () => (ledgerItem?.id ? fetchItemLedger(ledgerItem.id, 10) : []),
     enabled: !!ledgerItem,
   });
+
 
   const allOpenSaudas = useMemo(() => {
     if (!saudas.data) return [];
