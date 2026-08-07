@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState, useMemo } from "react";
 import { fetchBills, fetchItems, fetchSaudas, fetchSections } from "@/lib/queries";
-import { syncItemStockAndRate } from "@/lib/stock";
+import { syncItemStockAndRate, recomputeSaudaLifted } from "@/lib/stock";
 
 import { ItemPicker } from "@/components/ItemPicker";
 import { supabase } from "@/integrations/supabase/client";
