@@ -267,48 +267,20 @@ function ItemsPage() {
     }
   };
 
-  // Fetch last 3 purchases
+  // Fetch last 3 purchases (newest first — sorted client-side, see lib/stock.ts)
   const itemHistory = useQuery({
     queryKey: ["item_history", historyItem?.id],
-    queryFn: async () => {
-      if (!historyItem?.id) return [];
-      const { data, error } = await supabase
-        .from("purchase_history")
-        .select("vendor_name, purchase_date, rate")
-        .eq("item_id", historyItem.id)
-        .order("purchase_date", { ascending: false })
-        .limit(3);
-      return data || [];
-    },
+    queryFn: async () => (historyItem?.id ? fetchItemPurchaseHistory(historyItem.id, 3) : []),
     enabled: !!historyItem,
   });
 
-  // Fetch last 10 activities (ledger)
+  // Fetch last 10 activities (ledger, newest first)
   const itemLedger = useQuery({
     queryKey: ["item_ledger", ledgerItem?.id],
-    queryFn: async () => {
-      if (!ledgerItem?.id) return [];
-      const { data, error } = await supabase
-        .from("bill_items")
-        .select(`
-          qty,
-          bills!inner (
-            bill_date,
-            vendor,
-            type,
-            created_at
-          )
-        `)
-        .eq("item_id", ledgerItem.id)
-        .order("bill_date", { referencedTable: 'bills', ascending: false })
-        .order("created_at", { referencedTable: 'bills', ascending: false })
-        .limit(10);
-      
-      if (error) throw error;
-      return data || [];
-    },
+    queryFn: async () => (ledgerItem?.id ? fetchItemLedger(ledgerItem.id, 10) : []),
     enabled: !!ledgerItem,
   });
+
 
   const allOpenSaudas = useMemo(() => {
     if (!saudas.data) return [];
