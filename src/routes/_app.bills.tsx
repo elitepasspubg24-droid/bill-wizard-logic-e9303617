@@ -200,7 +200,20 @@ function EditBillDialog({
                           className="font-mono h-10 text-base sm:text-sm"
                         />
                       </td>
+                      <td className="p-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive"
+                          title="Remove this line"
+                          onClick={() => setBillItems(billItems.filter((_, idx) => idx !== i))}
+                        >
+                          ✕
+                        </Button>
+                      </td>
                     </tr>
+
                   ))}
                 </tbody>
                 <tfoot className="bg-muted/30 font-bold border-t">
