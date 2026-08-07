@@ -154,7 +154,9 @@ function EditBillDialog({
                     <th className="p-2">Match Item</th>
                     <th className="p-2 w-28">Qty (MT)</th>
                     <th className="p-2 w-32">Rate</th>
+                    <th className="p-2 w-10"></th>
                   </tr>
+
                 </thead>
                 <tbody>
                   {billItems.map((bi, i) => (
