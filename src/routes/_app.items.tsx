@@ -109,43 +109,8 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-// Helper to robustly recalculate stock qty for an item based on all history
-async function syncItemStockAndRate(itemId: string) {
-  const { data: allBillItems } = await supabase
-    .from("bill_items")
-    .select("qty, bills!inner(type)")
-    .eq("item_id", itemId);
+// Stock/rate recalculation lives in src/lib/stock.ts (single source of truth)
 
-  let newQty = 0;
-  allBillItems?.forEach((bi: any) => {
-    // Purchases and positive Suspense adjustments add to stock
-    // Sales and negative Suspense adjustments reduce stock
-    if (bi.bills.type === "purchase") {
-        newQty += Number(bi.qty);
-    } else if (bi.bills.type === "sale") {
-        newQty -= Number(bi.qty);
-    } else if (bi.bills.type === "suspense") {
-        newQty += Number(bi.qty); // Suspense qty is stored with its sign (+ or -)
-    }
-  });
-
-  const { data: latestPurchase } = await supabase
-    .from("bill_items")
-    .select("rate, bills!inner(bill_date, created_at)")
-    .eq("item_id", itemId)
-    .eq("bills.type", "purchase")
-    .gt("rate", 0)
-    .order("bill_date", { referencedTable: 'bills', ascending: false })
-    .order("created_at", { referencedTable: 'bills', ascending: false })
-    .limit(1);
-
-  const lastRate = latestPurchase?.[0]?.rate ?? null;
-
-  await supabase
-    .from("items")
-    .update({ available_qty: newQty, last_purchase_rate: lastRate })
-    .eq("id", itemId);
-}
 
 function ItemsPage() {
   const factories = useQuery({ queryKey: ["factories"], queryFn: fetchFactories });
