@@ -26,8 +26,7 @@ function RatesPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newFactoryName, setNewFactoryName] = useState("");
   const [newFactoryRate, setNewFactoryRate] = useState("");
-  const [noBillPct, setNoBillPct] = useState("");
-  const [perPct, setPerPct] = useState<Record<string, string>>({});
+  const nb = useNoBill();
 
   // Seed inputs from saved rates, but never overwrite what the user is
   // currently typing (background refetches used to wipe unsaved edits).
