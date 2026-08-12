@@ -1,3 +1,4 @@
+--- START OF FILE src/routes/_app.index.tsx ---
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
@@ -28,8 +29,6 @@ function RatesPage() {
   const [newFactoryRate, setNewFactoryRate] = useState("");
   const nb = useNoBill();
 
-  // Seed inputs from saved rates, but never overwrite what the user is
-  // currently typing (background refetches used to wipe unsaved edits).
   useEffect(() => {
     if (!factories.data) return;
     setFactoryRates((prev) => {
@@ -38,7 +37,6 @@ function RatesPage() {
       return next;
     });
   }, [factories.data]);
-
 
   const adjustAllRates = (amount: number) => {
     setFactoryRates((prev) => {
@@ -51,9 +49,6 @@ function RatesPage() {
     });
     toast.success(`Adjusted all factories by ${amount > 0 ? `+${amount}` : amount}`);
   };
-
-
-
 
   const resetAllRates = () => {
     if (factories.data) {
@@ -115,18 +110,21 @@ function RatesPage() {
         <div>
           <h2 className="text-2xl font-bold">Daily Factory Rates</h2>
           <p className="text-sm text-muted-foreground">
-            Update each factory's basic rate & adders. All Today/Sauda/Party rates auto-recompute.
+            Update each factory's basic rate. Flip "No Bill" to preview rates with markup.
           </p>
         </div>
-        <Button
-          size="sm"
-          variant={showAddForm ? "outline" : "default"}
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="gap-1.5"
-        >
-          <Plus className="h-4 w-4" />
-          {showAddForm ? "Cancel" : "Add Factory"}
-        </Button>
+        <div className="flex items-center gap-3">
+          <NoBillToggle />
+          <Button
+            size="sm"
+            variant={showAddForm ? "outline" : "default"}
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="gap-1.5"
+          >
+            <Plus className="h-4 w-4" />
+            {showAddForm ? "Cancel" : "Add Factory"}
+          </Button>
+        </div>
       </div>
 
       {showAddForm && (
@@ -183,10 +181,9 @@ function RatesPage() {
               </div>
 
               <div className="flex items-center gap-2 border rounded-lg p-1 pl-2 bg-muted/40 font-normal">
-                <NoBillToggle />
-                <span className="text-xs text-muted-foreground">Default %</span>
+                <span className="text-xs text-muted-foreground font-bold uppercase">Default Markup %</span>
                 <Input
-                  className="h-7 w-16 text-xs"
+                  className="h-7 w-16 text-xs font-bold text-amber-600"
                   type="number"
                   placeholder="10"
                   value={String(nb.defaultPct)}
@@ -200,52 +197,59 @@ function RatesPage() {
             </Button>
           </CardTitle>
           <p className="text-xs text-muted-foreground font-normal">
-            Saved rates are always bill rates. Flip the Bill / No Bill switch to view every rate with the % markup — nothing in your data changes, and switching back restores bill rates.
+            Rates stored in DB are always <strong>Bill Rates</strong>. Flip the "No Bill" switch to add the percentage markup for display.
           </p>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {factories.data?.map((f) => {
             const saved = Number(f.basic_rate ?? 0);
-            const current = Number(factoryRates[f.id]);
-            const diff = !isNaN(current) ? current - saved : 0;
+            const currentInput = Number(factoryRates[f.id]);
+            const diff = !isNaN(currentInput) ? currentInput - saved : 0;
+            
+            // This is the value that would be shown in the Matrix
+            const displayedRate = nb.adj(currentInput, f.id);
+            const factoryPct = nb.perFactory[f.id] ?? "";
+
             return (
-              <div key={f.id} className="border rounded-md p-3">
+              <div key={f.id} className={`border rounded-lg p-3 transition-colors ${nb.enabled ? "bg-amber-50/30 border-amber-200" : "bg-card"}`}>
                 <div className="flex items-center justify-between gap-2">
-                  <Label className="text-xs">{f.name}</Label>
+                  <Label className="text-xs font-bold uppercase tracking-tight">{f.name}</Label>
                   {diff !== 0 && (
-                    <span className={`text-[10px] font-mono ${diff > 0 ? "text-emerald-600" : "text-red-600"}`}>
-                      {diff > 0 ? "+" : ""}{diff.toFixed(0)} vs saved {saved.toFixed(0)}
+                    <span className={`text-[10px] font-mono font-bold ${diff > 0 ? "text-emerald-600" : "text-red-600"}`}>
+                      {diff > 0 ? "+" : ""}{diff.toFixed(0)}
                     </span>
                   )}
                 </div>
-                <div className="flex gap-2 mt-1">
-                  <Input
-                    type="number"
-                    value={factoryRates[f.id] ?? ""}
-                    onChange={(e) => setFactoryRates(prev => ({ ...prev, [f.id]: e.target.value }))}
-                  />
-                </div>
-                <div className="flex items-center gap-1 mt-2">
-                  <Input
-                    className="h-7 w-16 text-xs"
-                    type="number"
-                    placeholder="%"
-                    value={perPct[f.id] ?? ""}
-                    onChange={(e) => setPerPct((prev) => ({ ...prev, [f.id]: e.target.value }))}
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 text-xs"
-                    onClick={() => applyPctOne(f.id, Number(perPct[f.id]))}
-                  >
-                    Add %
-                  </Button>
-                  <span className="text-[10px] text-muted-foreground ml-auto">
-                    {Number(perPct[f.id]) > 0 && !isNaN(current)
-                      ? `→ ${Math.round(current * (1 + Number(perPct[f.id]) / 100))}`
-                      : ""}
-                  </span>
+                
+                <div className="space-y-3 mt-2">
+                  <div className="relative">
+                    <Input
+                      type="number"
+                      value={factoryRates[f.id] ?? ""}
+                      onChange={(e) => setFactoryRates(prev => ({ ...prev, [f.id]: e.target.value }))}
+                      className="font-mono font-bold text-lg"
+                    />
+                    <span className="absolute right-3 top-2.5 text-[10px] text-muted-foreground uppercase font-bold">Bill Rate</span>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2 border-t border-dashed">
+                    <div className="flex-1">
+                      <Label className="text-[9px] uppercase font-bold text-muted-foreground">Specific % Override</Label>
+                      <Input
+                        className="h-8 text-xs font-mono"
+                        type="number"
+                        placeholder={`${nb.defaultPct}% (def)`}
+                        value={factoryPct}
+                        onChange={(e) => setFactoryPct(f.id, e.target.value === "" ? null : Number(e.target.value))}
+                      />
+                    </div>
+                    <div className="text-right">
+                       <Label className="text-[9px] uppercase font-bold text-amber-600">No Bill Preview</Label>
+                       <div className="text-lg font-black font-mono text-amber-700">
+                         ₹{displayedRate}
+                       </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             );
@@ -265,6 +269,7 @@ function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: 
   const [adders, setAdders] = useState<Record<string, string>>({});
   const [pAdders, setPAdders] = useState<Record<string, string>>({});
   const [globalPartyAdder, setGlobalPartyAdder] = useState("");
+  const nb = useNoBill();
 
   useEffect(() => {
     setAdders((prev) => {
@@ -282,7 +287,7 @@ function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: 
   const applyGlobalPartyAdder = () => {
     setPAdders((prev) => {
       const next: Record<string, string> = {};
-      for (const id of Object.keys(prev)) next[id] = globalPartyAdder;
+      for (const f of factories) next[f.id] = globalPartyAdder;
       return next;
     });
     toast.success("Applied party adder to all factories");
@@ -317,62 +322,68 @@ function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: 
         <CardTitle className="flex flex-wrap items-center justify-between gap-3">
           <span>Factory Adders</span>
           <div className="flex items-center gap-2 text-sm font-normal">
-            <Label className="text-xs">Party Adder (all):</Label>
+            <Label className="text-xs font-bold uppercase">Party Adder (all):</Label>
             <Input
-              className="w-24"
+              className="w-24 h-8"
               type="number"
               value={globalPartyAdder}
               onChange={(e) => setGlobalPartyAdder(e.target.value)}
               placeholder="e.g. 200"
             />
-            <Button size="sm" variant="secondary" onClick={applyGlobalPartyAdder}>Apply to all</Button>
+            <Button size="sm" variant="secondary" onClick={applyGlobalPartyAdder}>Apply all</Button>
             <Button size="sm" onClick={() => saveAll.mutate()} disabled={saveAll.isPending}>
-              {saveAll.isPending ? "Saving…" : "Save all"}
+              {saveAll.isPending ? "Saving…" : "Save adders"}
             </Button>
           </div>
         </CardTitle>
       </CardHeader>
       <CardContent className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="border-b">
-            <tr className="text-left">
-              <th className="p-2">Factory</th>
-              <th className="p-2">Today's Basic</th>
-              <th className="p-2">Adder (+)</th>
-              <th className="p-2">Today's Rate</th>
-              <th className="p-2">Party Adder (+)</th>
-              <th className="p-2">Party Rate</th>
+          <thead className="border-b bg-muted/30">
+            <tr className="text-left text-[10px] uppercase font-bold text-muted-foreground">
+              <th className="p-3">Factory</th>
+              <th className="p-3 text-right">Basic (Adj)</th>
+              <th className="p-3 text-right">Adder (+)</th>
+              <th className="p-3 text-right">Today Rate</th>
+              <th className="p-3 text-right">Party Add (+)</th>
+              <th className="p-3 text-right">Final Party</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y">
             {factories.map((f) => {
-              const todayBasic = Number(f.basic_rate ?? 0);
+              // Apply adjustment to the basic rate
+              const adjBasic = nb.adj(Number(f.basic_rate ?? 0), f.id);
               const adderVal = Number(adders[f.id]) || 0;
               const pAdderVal = Number(pAdders[f.id]) || 0;
-              const todayRate = todayBasic + adderVal;
+              
+              const todayRate = adjBasic + adderVal;
               const partyRate = todayRate + pAdderVal;
+              
               return (
-                <tr key={f.id} className="border-b">
-                  <td className="p-2 font-medium">{f.name}</td>
-                  <td className="p-2 font-mono text-muted-foreground">{todayBasic.toFixed(0)}</td>
-                  <td className="p-2">
+                <tr key={f.id} className={`hover:bg-muted/20 ${nb.enabled ? "bg-amber-50/10" : ""}`}>
+                  <td className="p-3 font-semibold">{f.name}</td>
+                  <td className="p-3 text-right font-mono font-medium">
+                    {nb.enabled && <span className="text-[10px] text-muted-foreground line-through mr-1.5">{f.basic_rate}</span>}
+                    {adjBasic.toFixed(0)}
+                  </td>
+                  <td className="p-3">
                     <Input
-                      className="w-24"
+                      className="w-24 h-8 ml-auto font-mono text-right"
                       type="number"
                       value={adders[f.id] ?? ""}
                       onChange={(e) => setAdders((prev) => ({ ...prev, [f.id]: e.target.value }))}
                     />
                   </td>
-                  <td className="p-2 font-mono font-semibold text-primary">{todayRate.toFixed(0)}</td>
-                  <td className="p-2">
+                  <td className="p-3 text-right font-mono font-bold text-primary">{todayRate.toFixed(0)}</td>
+                  <td className="p-3">
                     <Input
-                      className="w-24"
+                      className="w-24 h-8 ml-auto font-mono text-right"
                       type="number"
                       value={pAdders[f.id] ?? ""}
                       onChange={(e) => setPAdders((prev) => ({ ...prev, [f.id]: e.target.value }))}
                     />
                   </td>
-                  <td className="p-2 font-mono font-semibold">{partyRate.toFixed(0)}</td>
+                  <td className="p-3 text-right font-mono font-black text-slate-900">{partyRate.toFixed(0)}</td>
                 </tr>
               );
             })}
