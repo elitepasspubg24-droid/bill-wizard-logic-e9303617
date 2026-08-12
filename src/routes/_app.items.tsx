@@ -306,7 +306,8 @@ const activePartyAdder = Number(activeTodayFactory?.party_adder ?? 0);
 
 const baseToday = activeFacBasic + activeFacAdder;
 const baseParty = baseToday + activePartyAdder;
-      const activeFacBasic = Number(activeTodayFactory?.basic_rate ?? 0);
+      const rawBasic = Number(activeTodayFactory?.basic_rate ?? 0);
+const activeFacBasic = nb.adj(rawBasic, activeTodayFactoryId);
       const activeFacAdder = Number(activeTodayFactory?.adder ?? 0);
       const activePartyAdder = Number(activeTodayFactory?.party_adder ?? 0);
 
