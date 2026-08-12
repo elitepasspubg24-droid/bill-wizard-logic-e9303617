@@ -23,6 +23,8 @@ function RatesPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newFactoryName, setNewFactoryName] = useState("");
   const [newFactoryRate, setNewFactoryRate] = useState("");
+  const [noBillPct, setNoBillPct] = useState("");
+  const [perPct, setPerPct] = useState<Record<string, string>>({});
 
   // Seed inputs from saved rates, but never overwrite what the user is
   // currently typing (background refetches used to wipe unsaved edits).
@@ -46,6 +48,36 @@ function RatesPage() {
       return next;
     });
     toast.success(`Adjusted all factories by ${amount > 0 ? `+${amount}` : amount}`);
+  };
+
+  // "No bill" rates: basic rate + X% (varies per factory / per day)
+  const applyPctAll = (pct: number) => {
+    if (!pct || isNaN(pct)) {
+      toast.error("Enter a valid percentage");
+      return;
+    }
+    setFactoryRates((prev) => {
+      const next: Record<string, string> = { ...prev };
+      (factories.data ?? []).forEach((f) => {
+        const base = Number(prev[f.id]) || Number(f.basic_rate) || 0;
+        next[f.id] = String(Math.round(base * (1 + pct / 100)));
+      });
+      return next;
+    });
+    toast.success(`Added ${pct}% to all factory basic rates`);
+  };
+
+  const applyPctOne = (factoryId: string, pct: number) => {
+    if (!pct || isNaN(pct)) {
+      toast.error("Enter a valid percentage");
+      return;
+    }
+    setFactoryRates((prev) => {
+      const f = (factories.data ?? []).find((x) => x.id === factoryId);
+      const base = Number(prev[factoryId]) || Number(f?.basic_rate) || 0;
+      return { ...prev, [factoryId]: String(Math.round(base * (1 + pct / 100))) };
+    });
+    toast.success(`Added ${pct}% to this factory`);
   };
 
   const resetAllRates = () => {
@@ -174,26 +206,87 @@ function RatesPage() {
                   Reset
                 </button>
               </div>
+
+              <div className="flex items-center gap-1 border rounded-lg p-1 bg-muted/40 font-normal">
+                <span className="text-xs font-semibold px-2 text-muted-foreground">No Bill %:</span>
+                {[9, 10, 11, 12, 13].map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    className="h-7 px-2 text-xs rounded bg-background border border-amber-200 text-amber-700 hover:bg-amber-50 font-medium transition-colors"
+                    onClick={() => applyPctAll(p)}
+                  >
+                    +{p}%
+                  </button>
+                ))}
+                <Input
+                  className="h-7 w-16 text-xs"
+                  type="number"
+                  placeholder="%"
+                  value={noBillPct}
+                  onChange={(e) => setNoBillPct(e.target.value)}
+                />
+                <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => applyPctAll(Number(noBillPct))}>
+                  Apply
+                </Button>
+              </div>
             </div>
 
             <Button size="sm" onClick={() => saveAllFactories.mutate()} disabled={saveAllFactories.isPending}>
               {saveAllFactories.isPending ? "Saving…" : "Save all"}
             </Button>
           </CardTitle>
+          <p className="text-xs text-muted-foreground font-normal">
+            All rates are bill rates. Use No Bill % to mark up basic rates (whole list or a single factory), then Save all.
+          </p>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {factories.data?.map((f) => (
-            <div key={f.id} className="border rounded-md p-3">
-              <Label className="text-xs">{f.name}</Label>
-              <div className="flex gap-2 mt-1">
-                <Input
-                  type="number"
-                  value={factoryRates[f.id] ?? ""}
-                  onChange={(e) => setFactoryRates(prev => ({ ...prev, [f.id]: e.target.value }))}
-                />
+          {factories.data?.map((f) => {
+            const saved = Number(f.basic_rate ?? 0);
+            const current = Number(factoryRates[f.id]);
+            const diff = !isNaN(current) ? current - saved : 0;
+            return (
+              <div key={f.id} className="border rounded-md p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-xs">{f.name}</Label>
+                  {diff !== 0 && (
+                    <span className={`text-[10px] font-mono ${diff > 0 ? "text-emerald-600" : "text-red-600"}`}>
+                      {diff > 0 ? "+" : ""}{diff.toFixed(0)} vs saved {saved.toFixed(0)}
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2 mt-1">
+                  <Input
+                    type="number"
+                    value={factoryRates[f.id] ?? ""}
+                    onChange={(e) => setFactoryRates(prev => ({ ...prev, [f.id]: e.target.value }))}
+                  />
+                </div>
+                <div className="flex items-center gap-1 mt-2">
+                  <Input
+                    className="h-7 w-16 text-xs"
+                    type="number"
+                    placeholder="%"
+                    value={perPct[f.id] ?? ""}
+                    onChange={(e) => setPerPct((prev) => ({ ...prev, [f.id]: e.target.value }))}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() => applyPctOne(f.id, Number(perPct[f.id]))}
+                  >
+                    Add %
+                  </Button>
+                  <span className="text-[10px] text-muted-foreground ml-auto">
+                    {Number(perPct[f.id]) > 0 && !isNaN(current)
+                      ? `→ ${Math.round(current * (1 + Number(perPct[f.id]) / 100))}`
+                      : ""}
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </CardContent>
       </Card>
 
