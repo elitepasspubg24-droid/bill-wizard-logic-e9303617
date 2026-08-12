@@ -182,28 +182,16 @@ function RatesPage() {
                 </button>
               </div>
 
-              <div className="flex items-center gap-1 border rounded-lg p-1 bg-muted/40 font-normal">
-                <span className="text-xs font-semibold px-2 text-muted-foreground">No Bill %:</span>
-                {[9, 10, 11, 12, 13].map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    className="h-7 px-2 text-xs rounded bg-background border border-amber-200 text-amber-700 hover:bg-amber-50 font-medium transition-colors"
-                    onClick={() => applyPctAll(p)}
-                  >
-                    +{p}%
-                  </button>
-                ))}
+              <div className="flex items-center gap-2 border rounded-lg p-1 pl-2 bg-muted/40 font-normal">
+                <NoBillToggle />
+                <span className="text-xs text-muted-foreground">Default %</span>
                 <Input
                   className="h-7 w-16 text-xs"
                   type="number"
-                  placeholder="%"
-                  value={noBillPct}
-                  onChange={(e) => setNoBillPct(e.target.value)}
+                  placeholder="10"
+                  value={String(nb.defaultPct)}
+                  onChange={(e) => setNoBillState({ defaultPct: Number(e.target.value) || 0 })}
                 />
-                <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => applyPctAll(Number(noBillPct))}>
-                  Apply
-                </Button>
               </div>
             </div>
 
@@ -212,7 +200,7 @@ function RatesPage() {
             </Button>
           </CardTitle>
           <p className="text-xs text-muted-foreground font-normal">
-            All rates are bill rates. Use No Bill % to mark up basic rates (whole list or a single factory), then Save all.
+            Saved rates are always bill rates. Flip the Bill / No Bill switch to view every rate with the % markup — nothing in your data changes, and switching back restores bill rates.
           </p>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
