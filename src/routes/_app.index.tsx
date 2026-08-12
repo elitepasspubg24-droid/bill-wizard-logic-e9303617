@@ -9,6 +9,9 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { RotateCcw, Plus, Factory } from "lucide-react";
+import { NoBillToggle } from "@/components/NoBillToggle";
+import { useNoBill } from "@/hooks/use-nobill";
+import { setFactoryPct, setNoBillState } from "@/lib/nobill";
 
 export const Route = createFileRoute("/_app/")({
   component: RatesPage,
@@ -23,8 +26,7 @@ function RatesPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newFactoryName, setNewFactoryName] = useState("");
   const [newFactoryRate, setNewFactoryRate] = useState("");
-  const [noBillPct, setNoBillPct] = useState("");
-  const [perPct, setPerPct] = useState<Record<string, string>>({});
+  const nb = useNoBill();
 
   // Seed inputs from saved rates, but never overwrite what the user is
   // currently typing (background refetches used to wipe unsaved edits).
@@ -50,35 +52,8 @@ function RatesPage() {
     toast.success(`Adjusted all factories by ${amount > 0 ? `+${amount}` : amount}`);
   };
 
-  // "No bill" rates: basic rate + X% (varies per factory / per day)
-  const applyPctAll = (pct: number) => {
-    if (!pct || isNaN(pct)) {
-      toast.error("Enter a valid percentage");
-      return;
-    }
-    setFactoryRates((prev) => {
-      const next: Record<string, string> = { ...prev };
-      (factories.data ?? []).forEach((f) => {
-        const base = Number(prev[f.id]) || Number(f.basic_rate) || 0;
-        next[f.id] = String(Math.round(base * (1 + pct / 100)));
-      });
-      return next;
-    });
-    toast.success(`Added ${pct}% to all factory basic rates`);
-  };
 
-  const applyPctOne = (factoryId: string, pct: number) => {
-    if (!pct || isNaN(pct)) {
-      toast.error("Enter a valid percentage");
-      return;
-    }
-    setFactoryRates((prev) => {
-      const f = (factories.data ?? []).find((x) => x.id === factoryId);
-      const base = Number(prev[factoryId]) || Number(f?.basic_rate) || 0;
-      return { ...prev, [factoryId]: String(Math.round(base * (1 + pct / 100))) };
-    });
-    toast.success(`Added ${pct}% to this factory`);
-  };
+
 
   const resetAllRates = () => {
     if (factories.data) {
@@ -207,28 +182,16 @@ function RatesPage() {
                 </button>
               </div>
 
-              <div className="flex items-center gap-1 border rounded-lg p-1 bg-muted/40 font-normal">
-                <span className="text-xs font-semibold px-2 text-muted-foreground">No Bill %:</span>
-                {[9, 10, 11, 12, 13].map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    className="h-7 px-2 text-xs rounded bg-background border border-amber-200 text-amber-700 hover:bg-amber-50 font-medium transition-colors"
-                    onClick={() => applyPctAll(p)}
-                  >
-                    +{p}%
-                  </button>
-                ))}
+              <div className="flex items-center gap-2 border rounded-lg p-1 pl-2 bg-muted/40 font-normal">
+                <NoBillToggle />
+                <span className="text-xs text-muted-foreground">Default %</span>
                 <Input
                   className="h-7 w-16 text-xs"
                   type="number"
-                  placeholder="%"
-                  value={noBillPct}
-                  onChange={(e) => setNoBillPct(e.target.value)}
+                  placeholder="10"
+                  value={String(nb.defaultPct)}
+                  onChange={(e) => setNoBillState({ defaultPct: Number(e.target.value) || 0 })}
                 />
-                <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => applyPctAll(Number(noBillPct))}>
-                  Apply
-                </Button>
               </div>
             </div>
 
@@ -237,7 +200,7 @@ function RatesPage() {
             </Button>
           </CardTitle>
           <p className="text-xs text-muted-foreground font-normal">
-            All rates are bill rates. Use No Bill % to mark up basic rates (whole list or a single factory), then Save all.
+            Saved rates are always bill rates. Flip the Bill / No Bill switch to view every rate with the % markup — nothing in your data changes, and switching back restores bill rates.
           </p>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
