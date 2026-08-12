@@ -48,6 +48,36 @@ function RatesPage() {
     toast.success(`Adjusted all factories by ${amount > 0 ? `+${amount}` : amount}`);
   };
 
+  // "No bill" rates: basic rate + X% (varies per factory / per day)
+  const applyPctAll = (pct: number) => {
+    if (!pct || isNaN(pct)) {
+      toast.error("Enter a valid percentage");
+      return;
+    }
+    setFactoryRates((prev) => {
+      const next: Record<string, string> = { ...prev };
+      (factories.data ?? []).forEach((f) => {
+        const base = Number(prev[f.id]) || Number(f.basic_rate) || 0;
+        next[f.id] = String(Math.round(base * (1 + pct / 100)));
+      });
+      return next;
+    });
+    toast.success(`Added ${pct}% to all factory basic rates`);
+  };
+
+  const applyPctOne = (factoryId: string, pct: number) => {
+    if (!pct || isNaN(pct)) {
+      toast.error("Enter a valid percentage");
+      return;
+    }
+    setFactoryRates((prev) => {
+      const f = (factories.data ?? []).find((x) => x.id === factoryId);
+      const base = Number(prev[factoryId]) || Number(f?.basic_rate) || 0;
+      return { ...prev, [factoryId]: String(Math.round(base * (1 + pct / 100))) };
+    });
+    toast.success(`Added ${pct}% to this factory`);
+  };
+
   const resetAllRates = () => {
     if (factories.data) {
       const initial: Record<string, string> = {};
