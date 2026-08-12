@@ -298,7 +298,7 @@ function ItemsPage() {
     const fmap = new Map(factories.data.map((f: any) => [f.id, f]));
 
     return sections.data.map((s: any) => {
-     const rawBasic = Number(activeTodayFactory?.basic_rate ?? 0);
+      const rawBasic = Number(activeTodayFactory?.basic_rate ?? 0);
 const activeFacBasic = nb.adj(rawBasic, activeTodayFactoryId); 
 
 const activeFacAdder = Number(activeTodayFactory?.adder ?? 0);
