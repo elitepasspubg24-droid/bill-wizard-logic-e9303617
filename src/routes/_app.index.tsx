@@ -1,4 +1,3 @@
---- START OF FILE src/routes/_app.index.tsx ---
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
