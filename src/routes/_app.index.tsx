@@ -9,6 +9,9 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { RotateCcw, Plus, Factory } from "lucide-react";
+import { NoBillToggle } from "@/components/NoBillToggle";
+import { useNoBill } from "@/hooks/use-nobill";
+import { setFactoryPct, setNoBillState } from "@/lib/nobill";
 
 export const Route = createFileRoute("/_app/")({
   component: RatesPage,
