@@ -36,7 +36,9 @@ import {
   Loader2,
   Scale,
   Zap,
-  AlertCircle
+  AlertCircle,
+  ChevronUp,
+  ChevronDown
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
