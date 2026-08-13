@@ -156,6 +156,127 @@ async function fileToOptimizedDataUrl(file: File, maxSide = 1600): Promise<strin
 
 // Stock/rate recalculation lives in src/lib/stock.ts (single source of truth)
 
+function SortableCartRow({
+  item,
+  index,
+  onNameChange,
+  onQtyChange,
+  onRateChange,
+  onRemove,
+}: {
+  item: CartItem;
+  index: number;
+  onNameChange: (id: string, name: string) => void;
+  onQtyChange: (id: string, qty: string) => void;
+  onRateChange: (id: string, rate: number) => void;
+  onRemove: (item: CartItem) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: item.id,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        "flex flex-col gap-2 p-3 border rounded-lg bg-muted/20 shadow-xs",
+        isDragging && "opacity-80 ring-2 ring-primary shadow-lg z-50 relative bg-background",
+      )}
+    >
+      <div className="flex items-start justify-between border-b pb-2 gap-2">
+        <button
+          type="button"
+          className="mt-3 shrink-0 touch-none cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
+          aria-label="Drag to reorder item"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] uppercase text-muted-foreground font-bold">
+            {index + 1}. {item.sectionName}
+          </p>
+          <Input
+            value={item.name}
+            onChange={(e) => onNameChange(item.id, e.target.value)}
+            className="h-8 text-sm font-semibold bg-background mt-1"
+            aria-label="Item name shown on the quotation"
+          />
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 text-destructive shrink-0"
+          onClick={() => onRemove(item)}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      <div className="text-[11px] bg-muted/50 p-2 rounded border border-border/60 space-y-1">
+        <div className="flex justify-between items-center text-foreground">
+          <span className="text-muted-foreground font-medium">Today Rate Config:</span>
+          <span className="font-semibold">
+            {item.todayFactoryName} (Basic: ₹{item.todayBasic} + Adder: ₹{item.todayAdder})
+          </span>
+        </div>
+        <div className="flex justify-between items-center text-foreground">
+          <span className="text-muted-foreground font-medium">Sauda Selected:</span>
+          <span className={`font-semibold ${item.saudaName ? "text-primary" : "text-muted-foreground"}`}>
+            {item.saudaName ? `${item.saudaName} (Basic: ₹${item.saudaBasic})` : "No Sauda Selected"}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-5 gap-1 py-1.5 bg-muted/40 rounded px-2 text-[10px] text-center">
+        <div>
+          <span className="text-muted-foreground block">Gauge</span>
+          <span className="font-mono font-medium">{item.gauge_diff > 0 ? `+${item.gauge_diff}` : item.gauge_diff}</span>
+        </div>
+        <div>
+          <span className="text-muted-foreground block">Today</span>
+          <span className="font-mono font-semibold text-primary">₹{Number(item.today).toFixed(0)}</span>
+        </div>
+        <div>
+          <span className="text-muted-foreground block">Sauda</span>
+          <span className="font-mono">{item.sauda !== null ? `₹${Number(item.sauda).toFixed(0)}` : "—"}</span>
+        </div>
+        <div>
+          <span className="text-muted-foreground block">Stock</span>
+          <span className="font-mono">{Number(item.available_qty).toFixed(1)}t</span>
+        </div>
+        <div>
+          <span className="text-muted-foreground block">Last Pur.</span>
+          <span className="font-mono">{item.last_purchase_rate ? `₹${item.last_purchase_rate}` : "—"}</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 pt-1">
+        <div className="space-y-1">
+          <Label className="text-[10px]">Quantity</Label>
+          <Input
+            placeholder="Optional"
+            value={item.qty}
+            onChange={(e) => onQtyChange(item.id, e.target.value)}
+            className="h-8 text-xs bg-background"
+          />
+        </div>
+        <div className="space-y-1 text-right">
+          <Label className="text-[10px] text-primary font-bold">Party Rate (₹)</Label>
+          <Input
+            type="number"
+            value={item.rate}
+            onChange={(e) => onRateChange(item.id, Number(e.target.value))}
+            className="h-8 text-right font-mono font-bold text-xs bg-background border-primary/40"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 function ItemsPage() {
   const factories = useQuery({ queryKey: ["factories"], queryFn: fetchFactories });
