@@ -101,7 +101,11 @@ ${catalogText}`; //[cite: 1]
         }
       ],
       generationConfig: {
-        responseMimeType: "application/json" // Forces strict native structured JSON output layout
+        responseMimeType: "application/json", // Forces strict native structured JSON output layout
+        temperature: 0,
+        maxOutputTokens: 4096,
+        // Disable "thinking" — biggest latency win, extraction needs no reasoning budget
+        thinkingConfig: { thinkingBudget: 0 }
       }
     };
 
