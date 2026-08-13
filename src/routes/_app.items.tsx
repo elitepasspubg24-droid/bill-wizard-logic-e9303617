@@ -36,7 +36,9 @@ import {
   Loader2,
   Scale,
   Zap,
-  AlertCircle
+  AlertCircle,
+  ChevronUp,
+  ChevronDown
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -109,6 +111,29 @@ function fileToDataUrl(file: File): Promise<string> {
     r.onerror = rej;
     r.readAsDataURL(file);
   });
+}
+
+// Shrink + compress photos before sending to the AI. Big phone photos (4-8 MB)
+// dominate the round-trip time; 1600px JPEG keeps handwriting legible at ~10x smaller.
+async function fileToOptimizedDataUrl(file: File, maxSide = 1600): Promise<string> {
+  if (!file.type.startsWith("image/")) return fileToDataUrl(file);
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    const w = Math.round(bitmap.width * scale);
+    const h = Math.round(bitmap.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return fileToDataUrl(file);
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    bitmap.close?.();
+    return canvas.toDataURL("image/jpeg", 0.8);
+  } catch {
+    return fileToDataUrl(file);
+  }
 }
 
 // Stock/rate recalculation lives in src/lib/stock.ts (single source of truth)
@@ -423,7 +448,7 @@ function ItemsPage() {
     const tid = toast.loading("AI scanning enquiry requirements...");
     
     try {
-      const dataUrl = await fileToDataUrl(file);
+      const dataUrl = await fileToOptimizedDataUrl(file);
       const sectionMap = new Map((sections.data ?? []).map((s: any) => [s.id, s.name]));
       const catalog = (items.data ?? []).map((it: any) => ({
         id: it.id,
@@ -490,6 +515,22 @@ function ItemsPage() {
 
   const updateCartRate = (id: string, rate: number) => {
     setCart((prev) => prev.map((i) => (i.id === id ? { ...i, rate } : i)));
+  };
+
+  const updateCartName = (id: string, name: string) => {
+    setCart((prev) => prev.map((i) => (i.id === id ? { ...i, name } : i)));
+  };
+
+  const moveCartItem = (id: string, dir: -1 | 1) => {
+    setCart((prev) => {
+      const idx = prev.findIndex((i) => i.id === id);
+      const next = idx + dir;
+      if (idx < 0 || next < 0 || next >= prev.length) return prev;
+      const copy = [...prev];
+      const [row] = copy.splice(idx, 1);
+      copy.splice(next, 0, row);
+      return copy;
+    });
   };
 
   const updateCartQty = (id: string, qty: string) => {
@@ -866,16 +907,45 @@ function ItemsPage() {
                       </div>
 
                       <div className="space-y-3">
-                        {cart.map((item) => (
+                        {cart.map((item, cartIdx) => (
                           <div key={item.id} className="flex flex-col gap-2 p-3 border rounded-lg bg-muted/20 shadow-xs">
-                            <div className="flex items-center justify-between border-b pb-2">
-                              <div className="truncate pr-4">
-                                <p className="text-[10px] uppercase text-muted-foreground font-bold">{item.sectionName}</p>
-                                <p className="text-sm font-semibold truncate">{item.name}</p>
+                            <div className="flex items-start justify-between border-b pb-2 gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[10px] uppercase text-muted-foreground font-bold">
+                                  {cartIdx + 1}. {item.sectionName}
+                                </p>
+                                <Input
+                                  value={item.name}
+                                  onChange={(e) => updateCartName(item.id, e.target.value)}
+                                  className="h-8 text-sm font-semibold bg-background mt-1"
+                                  aria-label="Item name shown on the quotation"
+                                />
                               </div>
-                              <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => toggleCart(item, "")}>
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  disabled={cartIdx === 0}
+                                  onClick={() => moveCartItem(item.id, -1)}
+                                  aria-label="Move item up"
+                                >
+                                  <ChevronUp className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  disabled={cartIdx === cart.length - 1}
+                                  onClick={() => moveCartItem(item.id, 1)}
+                                  aria-label="Move item down"
+                                >
+                                  <ChevronDown className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => toggleCart(item, "")}>
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
                             </div>
 
                             <div className="text-[11px] bg-muted/50 p-2 rounded border border-border/60 space-y-1">
