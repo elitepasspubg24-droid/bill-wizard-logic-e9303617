@@ -111,6 +111,29 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+// Shrink + compress photos before sending to the AI. Big phone photos (4-8 MB)
+// dominate the round-trip time; 1600px JPEG keeps handwriting legible at ~10x smaller.
+async function fileToOptimizedDataUrl(file: File, maxSide = 1600): Promise<string> {
+  if (!file.type.startsWith("image/")) return fileToDataUrl(file);
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    const w = Math.round(bitmap.width * scale);
+    const h = Math.round(bitmap.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return fileToDataUrl(file);
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    bitmap.close?.();
+    return canvas.toDataURL("image/jpeg", 0.8);
+  } catch {
+    return fileToDataUrl(file);
+  }
+}
+
 // Stock/rate recalculation lives in src/lib/stock.ts (single source of truth)
 
 
