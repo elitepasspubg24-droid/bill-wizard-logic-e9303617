@@ -67,6 +67,24 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useServerFn } from "@tanstack/react-start";
 import { extractBillFromImage } from "@/lib/ai.functions";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { restrictToVerticalAxis, restrictToParentElement } from "@dnd-kit/modifiers";
+import { CSS } from "@dnd-kit/utilities";
 
 type ColKey = "gauge_diff" | "today" | "sauda" | "party" | "available_qty" | "last_purchase_rate";
 const ALL_COLS: { key: ColKey; label: string }[] = [
