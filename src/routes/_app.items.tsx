@@ -515,6 +515,22 @@ function ItemsPage() {
     setCart((prev) => prev.map((i) => (i.id === id ? { ...i, rate } : i)));
   };
 
+  const updateCartName = (id: string, name: string) => {
+    setCart((prev) => prev.map((i) => (i.id === id ? { ...i, name } : i)));
+  };
+
+  const moveCartItem = (id: string, dir: -1 | 1) => {
+    setCart((prev) => {
+      const idx = prev.findIndex((i) => i.id === id);
+      const next = idx + dir;
+      if (idx < 0 || next < 0 || next >= prev.length) return prev;
+      const copy = [...prev];
+      const [row] = copy.splice(idx, 1);
+      copy.splice(next, 0, row);
+      return copy;
+    });
+  };
+
   const updateCartQty = (id: string, qty: string) => {
     setCart((prev) => prev.map((i) => (i.id === id ? { ...i, qty } : i)));
   };
