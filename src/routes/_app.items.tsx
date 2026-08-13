@@ -446,7 +446,7 @@ function ItemsPage() {
     const tid = toast.loading("AI scanning enquiry requirements...");
     
     try {
-      const dataUrl = await fileToDataUrl(file);
+      const dataUrl = await fileToOptimizedDataUrl(file);
       const sectionMap = new Map((sections.data ?? []).map((s: any) => [s.id, s.name]));
       const catalog = (items.data ?? []).map((it: any) => ({
         id: it.id,
