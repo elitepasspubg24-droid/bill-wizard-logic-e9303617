@@ -905,16 +905,45 @@ function ItemsPage() {
                       </div>
 
                       <div className="space-y-3">
-                        {cart.map((item) => (
+                        {cart.map((item, cartIdx) => (
                           <div key={item.id} className="flex flex-col gap-2 p-3 border rounded-lg bg-muted/20 shadow-xs">
-                            <div className="flex items-center justify-between border-b pb-2">
-                              <div className="truncate pr-4">
-                                <p className="text-[10px] uppercase text-muted-foreground font-bold">{item.sectionName}</p>
-                                <p className="text-sm font-semibold truncate">{item.name}</p>
+                            <div className="flex items-start justify-between border-b pb-2 gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[10px] uppercase text-muted-foreground font-bold">
+                                  {cartIdx + 1}. {item.sectionName}
+                                </p>
+                                <Input
+                                  value={item.name}
+                                  onChange={(e) => updateCartName(item.id, e.target.value)}
+                                  className="h-8 text-sm font-semibold bg-background mt-1"
+                                  aria-label="Item name shown on the quotation"
+                                />
                               </div>
-                              <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => toggleCart(item, "")}>
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  disabled={cartIdx === 0}
+                                  onClick={() => moveCartItem(item.id, -1)}
+                                  aria-label="Move item up"
+                                >
+                                  <ChevronUp className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  disabled={cartIdx === cart.length - 1}
+                                  onClick={() => moveCartItem(item.id, 1)}
+                                  aria-label="Move item down"
+                                >
+                                  <ChevronDown className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => toggleCart(item, "")}>
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
                             </div>
 
                             <div className="text-[11px] bg-muted/50 p-2 rounded border border-border/60 space-y-1">
