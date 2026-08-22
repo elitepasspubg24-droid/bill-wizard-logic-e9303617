@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { buildIndex, matchItem } from "@/lib/item-match";
+import { aliasKey, buildIndex, matchItem } from "@/lib/item-match";
 
 export type ExtractedBillItem = { //[cite: 1]
   raw_name: string; //[cite: 1]
@@ -15,16 +15,18 @@ export type ExtractedBill = { //[cite: 1]
   items: ExtractedBillItem[]; //[cite: 1]
 }; //[cite: 1]
 
-export type CatalogItem = { id: string; name: string; section?: string | null }; //[cite: 1]
+export type CatalogItem = { id: string; name: string; section?: string | null };
+export type ItemAlias = { alias_key: string; item_id: string };
 
-export const extractBillFromImage = createServerFn({ method: "POST" }) //[cite: 1]
-  .inputValidator( //[cite: 1]
-    (data: { //[cite: 1]
-      dataUrl: string; //[cite: 1]
-      type: "purchase" | "sale"; //[cite: 1]
-      catalog?: CatalogItem[]; //[cite: 1]
-    }) => data, //[cite: 1]
-  ) //[cite: 1]
+export const extractBillFromImage = createServerFn({ method: "POST" })
+  .inputValidator(
+    (data: {
+      dataUrl: string;
+      type: "purchase" | "sale";
+      catalog?: CatalogItem[];
+      aliases?: ItemAlias[];
+    }) => data,
+  )
   .handler(async ({ data }): Promise<ExtractedBill> => { //[cite: 1]
     // Get your free Gemini API Key from Google AI Studio
     const apiKey = process.env.GEMINI_API_KEY;
@@ -124,6 +126,13 @@ NOTATION
 
     const items = Array.isArray(parsed.items) ? parsed.items : [];
     const index = buildIndex(catalog);
+    const validIds = new Set(catalog.map((c) => c.id));
+    // Saved manual mappings win over fuzzy matching.
+    const aliasMap = new Map(
+      (data.aliases ?? [])
+        .filter((a) => validIds.has(a.item_id))
+        .map((a) => [a.alias_key, a.item_id]),
+    );
 
     return {
       vendor: parsed.vendor ?? null,
@@ -135,7 +144,8 @@ NOTATION
           raw_name,
           qty: Number(it.qty) || 0,
           rate: Number(it.rate) || 0,
-          matched_item_id: matchItem(raw_name, index),
+          matched_item_id:
+            aliasMap.get(aliasKey(raw_name)) ?? matchItem(raw_name, index),
         };
       }),
     };

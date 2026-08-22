@@ -181,6 +181,38 @@ export type Database = {
           },
         ]
       }
+      item_aliases: {
+        Row: {
+          alias_key: string
+          created_at: string
+          id: string
+          item_id: string
+          raw_name: string
+        }
+        Insert: {
+          alias_key: string
+          created_at?: string
+          id?: string
+          item_id: string
+          raw_name: string
+        }
+        Update: {
+          alias_key?: string
+          created_at?: string
+          id?: string
+          item_id?: string
+          raw_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "item_aliases_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       items: {
         Row: {
           available_qty: number

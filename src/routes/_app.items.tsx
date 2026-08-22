@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, useRef } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { fetchFactories, fetchSections, fetchItems, fetchSaudas } from "@/lib/queries";
+import { fetchFactories, fetchSections, fetchItems, fetchSaudas, fetchItemAliases, saveItemAlias } from "@/lib/queries";
+import { aliasKey } from "@/lib/item-match";
 import { syncItemStockAndRate, fetchItemLedger, fetchItemPurchaseHistory } from "@/lib/stock";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -167,6 +168,10 @@ function ItemsPage() {
   // --- AI SCAN STATE ---
   const [isExtracting, setIsExtracting] = useState(false);
   const [isScanEnquiryOpen, setIsScanEnquiryOpen] = useState(false);
+  const [scanLines, setScanLines] = useState<
+    { raw_name: string; qty: number; itemId: string | null; suggested: string | null }[]
+  >([]);
+  const [isScanReviewOpen, setIsScanReviewOpen] = useState(false);
 
   // --- DIALOG STATES ---
   const [isSectionDialogOpen, setIsSectionDialogOpen] = useState(false);
