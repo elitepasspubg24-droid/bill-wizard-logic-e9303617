@@ -355,11 +355,13 @@ function ItemsPage() {
           return {
             ...i,
             gauge_diff: gaugeDiff,
+            // No Bill markup and More Adder are applied before Party Adder,
+            // matching the Factory Adders table on the Index page.
             today: calculateRate(baseToday + gaugeDiff, activeTodayFactoryId),
             sauda: baseSauda !== null
               ? calculateRate(baseSauda + gaugeDiff, topSauda?.factory_id)
               : null,
-            party: calculateRate(baseParty + gaugeDiff, activeTodayFactoryId),
+            party: calculateRate(baseToday + gaugeDiff, activeTodayFactoryId) + activePartyAdder,
           };
         });
 
