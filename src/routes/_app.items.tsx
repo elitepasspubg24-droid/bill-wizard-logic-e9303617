@@ -498,10 +498,14 @@ function ItemsPage() {
         }
       });
 
+      const unmatched = result.items.filter((i) => !i.matched_item_id).length;
       if (newCartItems.length > 0) {
         setCart(prev => [...prev, ...newCartItems]);
         if (result.vendor) setPartyName(result.vendor);
-        toast.success(`Matched ${matchedCount} items and added to cart.`, { id: tid });
+        toast.success(
+          `Matched ${matchedCount} items${unmatched ? ` · ${unmatched} not matched` : ""}.`,
+          { id: tid },
+        );
       } else {
         toast.warning("Could not match any items automatically.", { id: tid });
       }
