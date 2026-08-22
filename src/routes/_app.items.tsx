@@ -67,6 +67,7 @@ import { ItemPicker } from "@/components/ItemPicker";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useServerFn } from "@tanstack/react-start";
+import { useNoBill } from "@/hooks/use-nobill";
 import { extractBillFromImage } from "@/lib/ai.functions";
 
 type ColKey = "gauge_diff" | "today" | "sauda" | "party" | "available_qty" | "last_purchase_rate";
@@ -147,6 +148,7 @@ function ItemsPage() {
   const saudas = useQuery({ queryKey: ["saudas"], queryFn: fetchSaudas });
   const queryClient = useQueryClient();
   const extract = useServerFn(extractBillFromImage);
+  const { calculateRate } = useNoBill();
   
   const [saving, setSaving] = useState(false);
   const [q, setQ] = useState("");
@@ -353,9 +355,11 @@ function ItemsPage() {
           return {
             ...i,
             gauge_diff: gaugeDiff,
-            today: baseToday + gaugeDiff,
-            sauda: baseSauda !== null ? baseSauda + gaugeDiff : null,
-            party: baseParty + gaugeDiff,
+            today: calculateRate(baseToday + gaugeDiff, activeTodayFactoryId),
+            sauda: baseSauda !== null
+              ? calculateRate(baseSauda + gaugeDiff, topSauda?.factory_id)
+              : null,
+            party: calculateRate(baseParty + gaugeDiff, activeTodayFactoryId),
           };
         });
 
@@ -379,7 +383,7 @@ function ItemsPage() {
       if (!aPipe && bPipe) return -1;
       return 0;
     });
-  }, [factories.data, sections.data, items.data, pickedTodayFactory, pickedSauda, allOpenSaudas, q, localGauges]);
+  }, [factories.data, sections.data, items.data, pickedTodayFactory, pickedSauda, allOpenSaudas, q, localGauges, calculateRate]);
 
   const getSectionRows = (sectionName: string) => {
     return grouped.find(g => g.section.name.trim().toUpperCase() === sectionName.toUpperCase())?.rows || [];
