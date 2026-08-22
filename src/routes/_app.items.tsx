@@ -168,6 +168,10 @@ function ItemsPage() {
   // --- AI SCAN STATE ---
   const [isExtracting, setIsExtracting] = useState(false);
   const [isScanEnquiryOpen, setIsScanEnquiryOpen] = useState(false);
+  const [scanLines, setScanLines] = useState<
+    { raw_name: string; qty: number; itemId: string | null; suggested: string | null }[]
+  >([]);
+  const [isScanReviewOpen, setIsScanReviewOpen] = useState(false);
 
   // --- DIALOG STATES ---
   const [isSectionDialogOpen, setIsSectionDialogOpen] = useState(false);
