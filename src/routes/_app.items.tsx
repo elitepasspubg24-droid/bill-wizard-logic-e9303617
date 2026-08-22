@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, useRef } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { fetchFactories, fetchSections, fetchItems, fetchSaudas } from "@/lib/queries";
+import { fetchFactories, fetchSections, fetchItems, fetchSaudas, fetchItemAliases, saveItemAlias } from "@/lib/queries";
+import { aliasKey } from "@/lib/item-match";
 import { syncItemStockAndRate, fetchItemLedger, fetchItemPurchaseHistory } from "@/lib/stock";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
