@@ -149,3 +149,8 @@ export function matchItem(rawName: string, index: MatcherIndex, minScore = 46): 
   if (!best || best.score < minScore) return null;
   return best.id;
 }
+
+/** Stable key used to remember a manual mapping for an OCR'd line. */
+export function aliasKey(rawName: string): string {
+  return signature(rawName).norm.replace(/\s+/g, " ").trim();
+}
