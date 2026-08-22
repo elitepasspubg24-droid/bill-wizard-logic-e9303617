@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { RotateCcw, Plus, Factory } from "lucide-react";
 import { NoBillToggle } from "@/components/NoBillToggle"; // Added import
+import { useNoBill } from "@/hooks/use-nobill";
 
 export const Route = createFileRoute("/_app/")({
   component: RatesPage,
@@ -210,6 +211,7 @@ function RatesPage() {
 }
 
 function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: () => void }) {
+  const { isNoBillMode, calculateRate } = useNoBill();
   const [adders, setAdders] = useState<Record<string, string>>({});
   const [pAdders, setPAdders] = useState<Record<string, string>>({});
   const [globalPartyAdder, setGlobalPartyAdder] = useState("");
@@ -251,7 +253,7 @@ function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: 
         if (pChanged) patch.party_adder = pVal;
 
         const { error } = await supabase.from("factories").update(patch).eq("id", f.id);
-        if (error) failures.push(`${f.name}: ${error.message}`);
+        if (error) failures.push(f.name + ": " + error.message);
       }
       if (failures.length) throw new Error(failures.join(" | "));
     },
@@ -263,16 +265,10 @@ function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: 
     <Card>
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center justify-between gap-3">
-          <span>Factory Adders</span>
+          <span>{isNoBillMode ? "No Bill Factory Adders" : "Bill Factory Adders"}</span>
           <div className="flex items-center gap-2 text-sm font-normal">
             <Label className="text-xs">Party Adder (all):</Label>
-            <Input
-              className="w-24"
-              type="number"
-              value={globalPartyAdder}
-              onChange={(e) => setGlobalPartyAdder(e.target.value)}
-              placeholder="e.g. 200"
-            />
+            <Input className="w-24" type="number" value={globalPartyAdder} onChange={(e) => setGlobalPartyAdder(e.target.value)} placeholder="e.g. 200" />
             <Button size="sm" variant="secondary" onClick={applyGlobalPartyAdder}>Apply to all</Button>
             <Button size="sm" onClick={() => saveAll.mutate()} disabled={saveAll.isPending}>
               {saveAll.isPending ? "Saving…" : "Save all"}
@@ -287,6 +283,7 @@ function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: 
               <th className="p-2">Factory</th>
               <th className="p-2">Today's Basic</th>
               <th className="p-2">Adder (+)</th>
+              {isNoBillMode && <th className="p-2">+NoBill% Adder</th>}
               <th className="p-2">Today's Rate</th>
               <th className="p-2">Party Adder (+)</th>
               <th className="p-2">Party Rate</th>
@@ -297,29 +294,18 @@ function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: 
               const todayBasic = Number(f.basic_rate ?? 0);
               const adderVal = Number(adders[f.id]) || 0;
               const pAdderVal = Number(pAdders[f.id]) || 0;
-              const todayRate = todayBasic + adderVal;
+              const billTodayRate = todayBasic + adderVal;
+              const noBillAdder = Math.max(0, calculateRate(billTodayRate, f.id) - billTodayRate);
+              const todayRate = billTodayRate + (isNoBillMode ? noBillAdder : 0);
               const partyRate = todayRate + pAdderVal;
               return (
                 <tr key={f.id} className="border-b">
                   <td className="p-2 font-medium">{f.name}</td>
                   <td className="p-2 font-mono text-muted-foreground">{todayBasic.toFixed(0)}</td>
-                  <td className="p-2">
-                    <Input
-                      className="w-24"
-                      type="number"
-                      value={adders[f.id] ?? ""}
-                      onChange={(e) => setAdders((prev) => ({ ...prev, [f.id]: e.target.value }))}
-                    />
-                  </td>
+                  <td className="p-2"><Input className="w-24" type="number" value={adders[f.id] ?? ""} onChange={(e) => setAdders((prev) => ({ ...prev, [f.id]: e.target.value }))} /></td>
+                  {isNoBillMode && <td className="p-2 font-mono font-semibold text-amber-700">+{noBillAdder.toFixed(0)}</td>}
                   <td className="p-2 font-mono font-semibold text-primary">{todayRate.toFixed(0)}</td>
-                  <td className="p-2">
-                    <Input
-                      className="w-24"
-                      type="number"
-                      value={pAdders[f.id] ?? ""}
-                      onChange={(e) => setPAdders((prev) => ({ ...prev, [f.id]: e.target.value }))}
-                    />
-                  </td>
+                  <td className="p-2"><Input className="w-24" type="number" value={pAdders[f.id] ?? ""} onChange={(e) => setPAdders((prev) => ({ ...prev, [f.id]: e.target.value }))} /></td>
                   <td className="p-2 font-mono font-semibold">{partyRate.toFixed(0)}</td>
                 </tr>
               );
