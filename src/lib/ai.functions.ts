@@ -126,6 +126,13 @@ NOTATION
 
     const items = Array.isArray(parsed.items) ? parsed.items : [];
     const index = buildIndex(catalog);
+    const validIds = new Set(catalog.map((c) => c.id));
+    // Saved manual mappings win over fuzzy matching.
+    const aliasMap = new Map(
+      (data.aliases ?? [])
+        .filter((a) => validIds.has(a.item_id))
+        .map((a) => [a.alias_key, a.item_id]),
+    );
 
     return {
       vendor: parsed.vendor ?? null,
@@ -137,7 +144,8 @@ NOTATION
           raw_name,
           qty: Number(it.qty) || 0,
           rate: Number(it.rate) || 0,
-          matched_item_id: matchItem(raw_name, index),
+          matched_item_id:
+            aliasMap.get(aliasKey(raw_name)) ?? matchItem(raw_name, index),
         };
       }),
     };
