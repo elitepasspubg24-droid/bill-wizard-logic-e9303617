@@ -44,3 +44,21 @@ export async function fetchSaudas() {
   if (error) throw error;
   return data;
 }
+
+export async function fetchItemAliases() {
+  const { data, error } = await supabase
+    .from("item_aliases")
+    .select("alias_key, raw_name, item_id");
+  if (error) throw error;
+  return data;
+}
+
+export async function saveItemAlias(rawName: string, itemId: string, aliasKey: string) {
+  const { error } = await supabase
+    .from("item_aliases")
+    .upsert(
+      { alias_key: aliasKey, raw_name: rawName, item_id: itemId },
+      { onConflict: "alias_key" },
+    );
+  if (error) throw error;
+}
