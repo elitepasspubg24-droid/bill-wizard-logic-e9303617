@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { RotateCcw, Plus, Factory } from "lucide-react";
+import { NoBillToggle } from "@/components/NoBillToggle"; // Added import
 
 export const Route = createFileRoute("/_app/")({
   component: RatesPage,
@@ -24,8 +25,6 @@ function RatesPage() {
   const [newFactoryName, setNewFactoryName] = useState("");
   const [newFactoryRate, setNewFactoryRate] = useState("");
 
-  // Seed inputs from saved rates, but never overwrite what the user is
-  // currently typing (background refetches used to wipe unsaved edits).
   useEffect(() => {
     if (!factories.data) return;
     setFactoryRates((prev) => {
@@ -111,15 +110,20 @@ function RatesPage() {
             Update each factory's basic rate & adders. All Today/Sauda/Party rates auto-recompute.
           </p>
         </div>
-        <Button
-          size="sm"
-          variant={showAddForm ? "outline" : "default"}
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="gap-1.5"
-        >
-          <Plus className="h-4 w-4" />
-          {showAddForm ? "Cancel" : "Add Factory"}
-        </Button>
+        
+        {/* Container for the Toggle and Add Button */}
+        <div className="flex items-center gap-3">
+          <NoBillToggle />
+          <Button
+            size="sm"
+            variant={showAddForm ? "outline" : "default"}
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="gap-1.5"
+          >
+            <Plus className="h-4 w-4" />
+            {showAddForm ? "Cancel" : "Add Factory"}
+          </Button>
+        </div>
       </div>
 
       {showAddForm && (
