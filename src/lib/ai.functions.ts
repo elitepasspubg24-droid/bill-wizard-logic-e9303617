@@ -121,21 +121,21 @@ NOTATION
       throw new Error("Gemini returned non-parseable JSON: " + raw.slice(0, 200));
     }
 
-    const validIds = new Set(catalog.map((c) => c.id)); //[cite: 1]
-    const items = Array.isArray(parsed.items) ? parsed.items : []; //[cite: 1]
-    
+    const items = Array.isArray(parsed.items) ? parsed.items : [];
+    const index = buildIndex(catalog);
+
     return {
-      vendor: parsed.vendor ?? null, //[cite: 1]
-      bill_no: parsed.bill_no ?? null, //[cite: 1]
-      bill_date: parsed.bill_date ?? null, //[cite: 1]
-      items: items.map((it) => ({
-        raw_name: String(it.raw_name ?? ""), //[cite: 1]
-        qty: Number(it.qty) || 0, //[cite: 1]
-        rate: Number(it.rate) || 0, //[cite: 1]
-        matched_item_id: //[cite: 1]
-          it.matched_item_id && validIds.has(it.matched_item_id) //[cite: 1]
-            ? it.matched_item_id //[cite: 1]
-            : null, //[cite: 1]
-      })),
+      vendor: parsed.vendor ?? null,
+      bill_no: parsed.bill_no ?? null,
+      bill_date: parsed.bill_date ?? null,
+      items: items.map((it) => {
+        const raw_name = String(it.raw_name ?? "");
+        return {
+          raw_name,
+          qty: Number(it.qty) || 0,
+          rate: Number(it.rate) || 0,
+          matched_item_id: matchItem(raw_name, index),
+        };
+      }),
     };
   });
