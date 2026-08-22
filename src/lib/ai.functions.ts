@@ -15,16 +15,18 @@ export type ExtractedBill = { //[cite: 1]
   items: ExtractedBillItem[]; //[cite: 1]
 }; //[cite: 1]
 
-export type CatalogItem = { id: string; name: string; section?: string | null }; //[cite: 1]
+export type CatalogItem = { id: string; name: string; section?: string | null };
+export type ItemAlias = { alias_key: string; item_id: string };
 
-export const extractBillFromImage = createServerFn({ method: "POST" }) //[cite: 1]
-  .inputValidator( //[cite: 1]
-    (data: { //[cite: 1]
-      dataUrl: string; //[cite: 1]
-      type: "purchase" | "sale"; //[cite: 1]
-      catalog?: CatalogItem[]; //[cite: 1]
-    }) => data, //[cite: 1]
-  ) //[cite: 1]
+export const extractBillFromImage = createServerFn({ method: "POST" })
+  .inputValidator(
+    (data: {
+      dataUrl: string;
+      type: "purchase" | "sale";
+      catalog?: CatalogItem[];
+      aliases?: ItemAlias[];
+    }) => data,
+  )
   .handler(async ({ data }): Promise<ExtractedBill> => { //[cite: 1]
     // Get your free Gemini API Key from Google AI Studio
     const apiKey = process.env.GEMINI_API_KEY;
