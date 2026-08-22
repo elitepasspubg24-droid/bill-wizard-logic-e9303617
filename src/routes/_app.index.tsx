@@ -211,7 +211,7 @@ function RatesPage() {
 }
 
 function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: () => void }) {
-  const { isNoBillMode, calculateRate } = useNoBill();
+  const { isNoBillMode, calculateRate, factoryMoreAdders, setFactoryMoreAdder } = useNoBill();
   const [adders, setAdders] = useState<Record<string, string>>({});
   const [pAdders, setPAdders] = useState<Record<string, string>>({});
   const [globalPartyAdder, setGlobalPartyAdder] = useState("");
@@ -284,6 +284,7 @@ function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: 
               <th className="p-2">Today's Basic</th>
               <th className="p-2">Adder (+)</th>
               {isNoBillMode && <th className="p-2">+NoBill% Adder</th>}
+              {isNoBillMode && <th className="p-2">More Adder (+)</th>}
               <th className="p-2">Today's Rate</th>
               <th className="p-2">Party Adder (+)</th>
               <th className="p-2">Party Rate</th>
@@ -295,8 +296,9 @@ function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: 
               const adderVal = Number(adders[f.id]) || 0;
               const pAdderVal = Number(pAdders[f.id]) || 0;
               const billTodayRate = todayBasic + adderVal;
-              const noBillAdder = Math.max(0, calculateRate(billTodayRate, f.id) - billTodayRate);
-              const todayRate = billTodayRate + (isNoBillMode ? noBillAdder : 0);
+              const noBillAdder = Math.round(billTodayRate * ((calculateRate(billTodayRate, f.id) - billTodayRate - Number(factoryMoreAdders[f.id] || 0)) / Math.max(1, billTodayRate)));
+              const moreAdder = Number(factoryMoreAdders[f.id] || 0);
+              const todayRate = billTodayRate + (isNoBillMode ? noBillAdder + moreAdder : 0);
               const partyRate = todayRate + pAdderVal;
               return (
                 <tr key={f.id} className="border-b">
@@ -304,6 +306,11 @@ function FactoryAddersCard({ factories, onSaved }: { factories: any[]; onSaved: 
                   <td className="p-2 font-mono text-muted-foreground">{todayBasic.toFixed(0)}</td>
                   <td className="p-2"><Input className="w-24" type="number" value={adders[f.id] ?? ""} onChange={(e) => setAdders((prev) => ({ ...prev, [f.id]: e.target.value }))} /></td>
                   {isNoBillMode && <td className="p-2 font-mono font-semibold text-amber-700">+{noBillAdder.toFixed(0)}</td>}
+                  {isNoBillMode && (
+                    <td className="p-2">
+                      <Input className="w-24" type="number" value={moreAdder} onChange={(e) => setFactoryMoreAdder(f.id, Number(e.target.value) || 0)} />
+                    </td>
+                  )}
                   <td className="p-2 font-mono font-semibold text-primary">{todayRate.toFixed(0)}</td>
                   <td className="p-2"><Input className="w-24" type="number" value={pAdders[f.id] ?? ""} onChange={(e) => setPAdders((prev) => ({ ...prev, [f.id]: e.target.value }))} /></td>
                   <td className="p-2 font-mono font-semibold">{partyRate.toFixed(0)}</td>
