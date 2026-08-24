@@ -33,6 +33,9 @@ type Sig = {
   /** plate family: CHQ vs HR, pipe family: OD / NB / SQ / RECT */
   sub: string | null;
   dims: number[];
+  /** every number found, unit-tagged or not */
+  allNums: number[];
+
   thickness: number | null;
   kg: number | null;
   feet: number | null;
