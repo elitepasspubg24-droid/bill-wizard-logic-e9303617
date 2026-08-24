@@ -146,10 +146,14 @@ export function signature(raw: string): Sig {
   // thickness: explicit "...mm". For pipes the mm value is the wall thickness;
   // for plates it is the plate thickness. Either way it is not a size dim.
   let thickness = mmM ? num(mmM[1]) : null;
-  // "100x100x3" style (no unit) — trailing number of a 3-part group is thickness
+  // "100x100x3" style (no unit) — trailing number of a 3-part group is thickness,
+  // unless that number is the kg/pc figure ("38x38x11kg").
   if (thickness == null) {
     const three = upper.match(/(\d+(?:\.\d+)?)\s*X\s*(\d+(?:\.\d+)?)\s*X\s*(\d+(?:\.\d+)?)(?!\s*\d)/);
-    if (three && (cat === "PIPE" || cat === "ANGLE")) thickness = num(three[3]);
+    if (three && (cat === "PIPE" || cat === "ANGLE")) {
+      const t = num(three[3]);
+      if (kg == null || Math.abs(t - kg) > 1e-6) thickness = t;
+    }
   }
   if (thickness != null) consumed.push(thickness);
 
@@ -162,7 +166,13 @@ export function signature(raw: string): Sig {
   }
   // Bare thickness-only names ("3mm (4X8)" plate, "10mm" bar): if nothing is
   // left, the thickness/diameter IS the identifying dim.
-  const dims = dimsPool.length ? dimsPool : thickness != null ? [thickness] : [];
+  let dims = dimsPool.length ? dimsPool : thickness != null ? [thickness] : [];
+  // Angles are written both as "L 50x50x5" and "L 50x5" — collapse the
+  // repeated leg so both forms compare equal.
+  if (cat === "ANGLE" && dims.length >= 2 && Math.abs(dims[0] - dims[1]) < 1e-6) {
+    dims = [dims[0], ...dims.slice(2)];
+  }
+
 
   const words = new Set<string>();
   for (const w of norm.split(/[ X]+/)) {
