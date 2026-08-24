@@ -192,6 +192,8 @@ export function signature(raw: string): Sig {
     cat,
     sub,
     dims: dims.slice(0, 4),
+    allNums: all,
+
     thickness,
     kg,
     feet,
