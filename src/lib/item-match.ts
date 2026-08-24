@@ -289,7 +289,11 @@ export function scoreMatch(q: Sig, c: Sig): number {
   if (q.sl != null && c.sl != null) score += q.sl === c.sl ? 5 : -6;
   if (q.od !== c.od && (q.cat === "PIPE" || c.cat === "PIPE")) score -= 8;
 
-  // 6. Text similarity (small weight, breaks ties on wording).
+  // 6. Raw-number overlap — catches unit-less writing ("114 OD x 3.6" where
+  // the catalog spells the same value as a thickness).
+  score += dimScore(q.allNums, c.allNums) * 14;
+
+  // 7. Text similarity (small weight, breaks ties on wording).
   score += wordOverlap(q.words, c.words) * 12;
   score += strSim(q.compact, c.compact) * 12;
 
@@ -310,14 +314,16 @@ export function buildIndex(catalog: MatchCatalogItem[]): MatcherIndex {
       sig: {
         ...sig,
         dims: nameSig.dims,
+        allNums: nameSig.allNums,
         thickness: nameSig.thickness,
         kg: nameSig.kg,
         feet: nameSig.feet ?? sig.feet,
-        compact: signature(item.name).compact,
+        compact: nameSig.compact,
       },
     };
   });
 }
+
 
 /**
  * Returns the best catalog id for a raw OCR'd name, or null when not confident.
