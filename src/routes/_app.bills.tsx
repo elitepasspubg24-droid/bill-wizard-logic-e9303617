@@ -351,18 +351,20 @@ function BillsPage() {
     setFile(null);
   };
 
-  function autoMatch(raw: string): string | null {
-    if (!items.data) return null;
-    const r = raw.toLowerCase();
-    let best: { id: string; score: number } | null = null;
-    for (const it of items.data) {
-      const n = it.name.toLowerCase();
-      let score = 0;
-      const tokens = n.split(/[\s/x*-]+/).filter(Boolean);
-      for (const t of tokens) if (t.length > 1 && r.includes(t)) score += t.length;
-      if (score > (best?.score ?? 0)) best = { id: it.id, score };
-    }
-    return best && best.score >= 3 ? best.id : null;
+  function buildCatalog() {
+    const sectionMap = new Map((sections.data ?? []).map((s: any) => [s.id, s.name]));
+    return (items.data ?? []).map((it: any) => ({
+      id: it.id,
+      name: it.name,
+      section: it.section_id ? sectionMap.get(it.section_id) ?? null : null,
+    }));
+  }
+
+  function autoMatch(raw: string, catalog?: { id: string; name: string; section: string | null }[]) {
+    const cat = catalog ?? buildCatalog();
+    if (!cat.length) return null;
+    // same deterministic matcher the server uses, as a client-side fallback
+    return matchItem(raw, buildIndex(cat), 44);
   }
 
   async function onExtract() {
@@ -370,16 +372,15 @@ function BillsPage() {
     setBusy(true);
     try {
       const dataUrl = await fileToDataUrl(file);
-      const sectionMap = new Map((sections.data ?? []).map((s: any) => [s.id, s.name]));
-      const catalog = (items.data ?? []).map((it: any) => ({
-        id: it.id,
-        name: it.name,
-        section: it.section_id ? sectionMap.get(it.section_id) ?? null : null,
-      }));
+      const catalog = buildCatalog();
       const result = await extract({ data: { dataUrl, type, catalog } });
       setDraft(result);
-      setMatches(result.items.map((i) => i.matched_item_id ?? autoMatch(i.raw_name)));
-      toast.success(`Extracted ${result.items.length} items`);
+      setMatches(result.items.map((i) => i.matched_item_id ?? autoMatch(i.raw_name, catalog)));
+      const unmatched = result.items.filter((i) => !i.matched_item_id).length;
+      toast.success(
+        `Extracted ${result.items.length} items${unmatched ? ` — ${unmatched} need picking` : ""}`,
+      );
+
     } catch (e: any) {
       toast.error(e.message ?? "Extract failed");
     } finally {
