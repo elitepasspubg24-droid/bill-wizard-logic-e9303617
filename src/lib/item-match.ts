@@ -281,8 +281,11 @@ export function scoreMatch(q: Sig, c: Sig): number {
 
   // 4. Weight per piece — the decisive field on pipes.
   if (q.kg != null && c.kg != null) {
-    score += Math.abs(q.kg - c.kg) < 0.26 ? 20 : -20;
+    // slips round the weight ("11 kg" for an 11.5 kg pipe), so grade it
+    const d = Math.abs(q.kg - c.kg);
+    score += d < 0.3 ? 20 : d <= 0.75 ? 11 : -20;
   }
+
 
   // 5. Length in feet, SL vs Normal.
   if (q.feet != null && c.feet != null) score += close(q.feet, c.feet, 0.01, 0.01) ? 8 : -10;
