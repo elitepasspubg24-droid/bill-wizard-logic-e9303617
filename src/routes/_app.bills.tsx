@@ -4,6 +4,8 @@ import { useServerFn } from "@tanstack/react-start";
 import { useState, useMemo } from "react";
 import { fetchBills, fetchItems, fetchSaudas, fetchSections } from "@/lib/queries";
 import { syncItemStockAndRate, recomputeSaudaLifted } from "@/lib/stock";
+import { buildIndex, matchItem } from "@/lib/item-match";
+
 
 import { ItemPicker } from "@/components/ItemPicker";
 import { supabase } from "@/integrations/supabase/client";
