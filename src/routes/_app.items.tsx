@@ -465,7 +465,8 @@ function ItemsPage() {
         section: it.section_id ? sectionMap.get(it.section_id) ?? null : null,
       }));
       
-      const result = await extract({ data: { dataUrl, type: "sale", catalog } });
+      const aliases = await fetchItemAliases().catch(() => []);
+      const result = await extract({ data: { dataUrl, type: "sale", catalog, aliases } });
       
       if (!result.items || result.items.length === 0) {
         toast.error("No items detected in document.", { id: tid });
