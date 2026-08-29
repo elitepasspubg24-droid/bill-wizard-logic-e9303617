@@ -2,9 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState, useMemo } from "react";
-import { fetchBills, fetchItems, fetchSaudas, fetchSections } from "@/lib/queries";
+import { fetchBills, fetchItems, fetchSaudas, fetchSections, fetchItemAliases, saveItemAlias } from "@/lib/queries";
 import { syncItemStockAndRate, recomputeSaudaLifted } from "@/lib/stock";
-import { buildIndex, matchItem } from "@/lib/item-match";
+import { aliasKey, buildIndex, matchItem } from "@/lib/item-match";
 
 
 import { ItemPicker } from "@/components/ItemPicker";
