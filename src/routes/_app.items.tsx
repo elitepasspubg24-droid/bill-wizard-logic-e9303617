@@ -515,12 +515,12 @@ function ItemsPage() {
         }
       });
 
-      const unmatched = result.items.filter((i) => !i.matched_item_id).length;
+      const dropped = result.items.length - matchedCount;
       if (newCartItems.length > 0) {
         setCart(prev => [...prev, ...newCartItems]);
         if (result.vendor) setPartyName(result.vendor);
         toast.success(
-          `Matched ${matchedCount} items${unmatched ? ` · ${unmatched} not matched` : ""}.`,
+          `Added ${matchedCount} items${guessedCount ? ` · ${guessedCount} best-guess (check names)` : ""}${dropped > 0 ? ` · ${dropped} skipped` : ""}.`,
           { id: tid },
         );
       } else {
