@@ -519,7 +519,14 @@ function BillsPage() {
                             items={items.data ?? []}
                             sections={sections.data ?? []}
                             value={matches[i]}
-                            onChange={(id) => { const n = [...matches]; n[i] = id; setMatches(n); }}
+                            onChange={(id) => {
+                              const n = [...matches]; n[i] = id; setMatches(n);
+                              // remember this manual pick so the same slip wording matches next time
+                              const raw = draft.items[i]?.raw_name ?? "";
+                              if (id && raw.trim()) {
+                                void saveItemAlias(raw, id, aliasKey(raw)).catch(() => {});
+                              }
+                            }}
                             width="w-full"
                           />
                         </td>
