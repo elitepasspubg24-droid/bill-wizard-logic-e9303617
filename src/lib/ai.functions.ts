@@ -6,6 +6,8 @@ export type ExtractedBillItem = { //[cite: 1]
   qty: number; //[cite: 1]
   rate: number; //[cite: 1]
   matched_item_id?: string | null; //[cite: 1]
+  /** best local candidates, best first — used when matched_item_id is null */
+  candidates?: { id: string; name: string; score: number }[];
 }; //[cite: 1]
 
 export type ExtractedBill = { //[cite: 1]
