@@ -465,7 +465,8 @@ function ItemsPage() {
         section: it.section_id ? sectionMap.get(it.section_id) ?? null : null,
       }));
       
-      const result = await extract({ data: { dataUrl, type: "sale", catalog } });
+      const aliases = await fetchItemAliases().catch(() => []);
+      const result = await extract({ data: { dataUrl, type: "sale", catalog, aliases } });
       
       if (!result.items || result.items.length === 0) {
         toast.error("No items detected in document.", { id: tid });
@@ -474,12 +475,20 @@ function ItemsPage() {
 
       const newCartItems: CartItem[] = [];
       let matchedCount = 0;
+      let guessedCount = 0;
 
       result.items.forEach((extracted) => {
-        if (!extracted.matched_item_id) return;
-        
+        // fall back to the best local candidate so a line is never silently dropped
+        const targetId =
+          extracted.matched_item_id ??
+          (extracted.candidates?.[0] && extracted.candidates[0].score >= 24
+            ? extracted.candidates[0].id
+            : null);
+        if (!targetId) return;
+        if (!extracted.matched_item_id) guessedCount++;
+
         for (const g of grouped) {
-          const found = g.rows.find((r: any) => r.id === extracted.matched_item_id);
+          const found = g.rows.find((r: any) => r.id === targetId);
           if (found) {
             if (cart.some(c => c.id === found.id)) return;
 
@@ -507,12 +516,12 @@ function ItemsPage() {
         }
       });
 
-      const unmatched = result.items.filter((i) => !i.matched_item_id).length;
+      const dropped = result.items.length - matchedCount;
       if (newCartItems.length > 0) {
         setCart(prev => [...prev, ...newCartItems]);
         if (result.vendor) setPartyName(result.vendor);
         toast.success(
-          `Matched ${matchedCount} items${unmatched ? ` · ${unmatched} not matched` : ""}.`,
+          `Added ${matchedCount} items${guessedCount ? ` · ${guessedCount} best-guess (check names)` : ""}${dropped > 0 ? ` · ${dropped} skipped` : ""}.`,
           { id: tid },
         );
       } else {

@@ -2,9 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState, useMemo } from "react";
-import { fetchBills, fetchItems, fetchSaudas, fetchSections } from "@/lib/queries";
+import { fetchBills, fetchItems, fetchSaudas, fetchSections, fetchItemAliases, saveItemAlias } from "@/lib/queries";
 import { syncItemStockAndRate, recomputeSaudaLifted } from "@/lib/stock";
-import { buildIndex, matchItem } from "@/lib/item-match";
+import { aliasKey, buildIndex, matchItem } from "@/lib/item-match";
 
 
 import { ItemPicker } from "@/components/ItemPicker";
@@ -375,9 +375,17 @@ function BillsPage() {
     try {
       const dataUrl = await fileToDataUrl(file);
       const catalog = buildCatalog();
-      const result = await extract({ data: { dataUrl, type, catalog } });
+      const aliases = await fetchItemAliases().catch(() => []);
+      const result = await extract({ data: { dataUrl, type, catalog, aliases } });
       setDraft(result);
-      setMatches(result.items.map((i) => i.matched_item_id ?? autoMatch(i.raw_name, catalog)));
+      setMatches(
+        result.items.map(
+          (i) =>
+            i.matched_item_id ??
+            autoMatch(i.raw_name, catalog) ??
+            (i.candidates?.[0] && i.candidates[0].score >= 24 ? i.candidates[0].id : null),
+        ),
+      );
       const unmatched = result.items.filter((i) => !i.matched_item_id).length;
       toast.success(
         `Extracted ${result.items.length} items${unmatched ? ` — ${unmatched} need picking` : ""}`,
@@ -511,7 +519,14 @@ function BillsPage() {
                             items={items.data ?? []}
                             sections={sections.data ?? []}
                             value={matches[i]}
-                            onChange={(id) => { const n = [...matches]; n[i] = id; setMatches(n); }}
+                            onChange={(id) => {
+                              const n = [...matches]; n[i] = id; setMatches(n);
+                              // remember this manual pick so the same slip wording matches next time
+                              const raw = draft.items[i]?.raw_name ?? "";
+                              if (id && raw.trim()) {
+                                void saveItemAlias(raw, id, aliasKey(raw)).catch(() => {});
+                              }
+                            }}
                             width="w-full"
                           />
                         </td>

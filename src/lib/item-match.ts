@@ -336,8 +336,8 @@ export function buildIndex(catalog: MatchCatalogItem[]): MatcherIndex {
 export function matchItem(
   rawName: string,
   index: MatcherIndex,
-  minScore = 48,
-  margin = 4,
+  minScore = 42,
+  margin = 2.5,
 ): string | null {
   const best = rankMatches(rawName, index, 2);
   if (!best.length) return null;

@@ -1,11 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
-import { aliasKey, buildIndex, matchItem } from "@/lib/item-match";
+import { aliasKey, buildIndex, matchItem, rankMatches } from "@/lib/item-match";
 
 export type ExtractedBillItem = { //[cite: 1]
   raw_name: string; //[cite: 1]
   qty: number; //[cite: 1]
   rate: number; //[cite: 1]
   matched_item_id?: string | null; //[cite: 1]
+  /** best local candidates, best first — used when matched_item_id is null */
+  candidates?: { id: string; name: string; score: number }[];
 }; //[cite: 1]
 
 export type ExtractedBill = { //[cite: 1]
@@ -140,12 +142,14 @@ NOTATION
       bill_date: parsed.bill_date ?? null,
       items: items.map((it) => {
         const raw_name = String(it.raw_name ?? "");
+        const candidates = rankMatches(raw_name, index, 3).filter((c) => c.score > 12);
         return {
           raw_name,
           qty: Number(it.qty) || 0,
           rate: Number(it.rate) || 0,
           matched_item_id:
             aliasMap.get(aliasKey(raw_name)) ?? matchItem(raw_name, index),
+          candidates,
         };
       }),
     };
