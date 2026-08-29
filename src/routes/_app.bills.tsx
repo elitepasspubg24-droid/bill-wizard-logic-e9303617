@@ -375,9 +375,17 @@ function BillsPage() {
     try {
       const dataUrl = await fileToDataUrl(file);
       const catalog = buildCatalog();
-      const result = await extract({ data: { dataUrl, type, catalog } });
+      const aliases = await fetchItemAliases().catch(() => []);
+      const result = await extract({ data: { dataUrl, type, catalog, aliases } });
       setDraft(result);
-      setMatches(result.items.map((i) => i.matched_item_id ?? autoMatch(i.raw_name, catalog)));
+      setMatches(
+        result.items.map(
+          (i) =>
+            i.matched_item_id ??
+            autoMatch(i.raw_name, catalog) ??
+            (i.candidates?.[0] && i.candidates[0].score >= 24 ? i.candidates[0].id : null),
+        ),
+      );
       const unmatched = result.items.filter((i) => !i.matched_item_id).length;
       toast.success(
         `Extracted ${result.items.length} items${unmatched ? ` — ${unmatched} need picking` : ""}`,
