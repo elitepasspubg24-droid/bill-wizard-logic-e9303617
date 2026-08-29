@@ -474,12 +474,20 @@ function ItemsPage() {
 
       const newCartItems: CartItem[] = [];
       let matchedCount = 0;
+      let guessedCount = 0;
 
       result.items.forEach((extracted) => {
-        if (!extracted.matched_item_id) return;
-        
+        // fall back to the best local candidate so a line is never silently dropped
+        const targetId =
+          extracted.matched_item_id ??
+          (extracted.candidates?.[0] && extracted.candidates[0].score >= 24
+            ? extracted.candidates[0].id
+            : null);
+        if (!targetId) return;
+        if (!extracted.matched_item_id) guessedCount++;
+
         for (const g of grouped) {
-          const found = g.rows.find((r: any) => r.id === extracted.matched_item_id);
+          const found = g.rows.find((r: any) => r.id === targetId);
           if (found) {
             if (cart.some(c => c.id === found.id)) return;
 
