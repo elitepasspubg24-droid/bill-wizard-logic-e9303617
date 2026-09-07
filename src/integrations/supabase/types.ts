@@ -474,6 +474,27 @@ export type Database = {
           },
         ]
       }
+      whatsapp_allowed_numbers: {
+        Row: {
+          created_at: string
+          id: string
+          label: string | null
+          phone: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          phone: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string | null
+          phone?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       purchase_history: {
