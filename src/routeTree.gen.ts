@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
+import { Route as AppWhatsappRouteImport } from './routes/_app.whatsapp'
 import { Route as AppSaudasRouteImport } from './routes/_app.saudas'
 import { Route as AppItemsRouteImport } from './routes/_app.items'
 import { Route as AppHistoryRouteImport } from './routes/_app.history'
@@ -34,6 +35,11 @@ const AppRoute = AppRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWhatsappRoute = AppWhatsappRouteImport.update({
+  id: '/whatsapp',
+  path: '/whatsapp',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSaudasRoute = AppSaudasRouteImport.update({
@@ -93,6 +99,7 @@ export interface FileRoutesByFullPath {
   '/history': typeof AppHistoryRoute
   '/items': typeof AppItemsRoute
   '/saudas': typeof AppSaudasRoute
+  '/whatsapp': typeof AppWhatsappRoute
   '/api/public/hooks/cleanup-bills': typeof ApiPublicHooksCleanupBillsRoute
   '/api/public/hooks/cleanup-saudas': typeof ApiPublicHooksCleanupSaudasRoute
   '/api/public/hooks/sync-sheets': typeof ApiPublicHooksSyncSheetsRoute
@@ -105,6 +112,7 @@ export interface FileRoutesByTo {
   '/history': typeof AppHistoryRoute
   '/items': typeof AppItemsRoute
   '/saudas': typeof AppSaudasRoute
+  '/whatsapp': typeof AppWhatsappRoute
   '/': typeof AppIndexRoute
   '/api/public/hooks/cleanup-bills': typeof ApiPublicHooksCleanupBillsRoute
   '/api/public/hooks/cleanup-saudas': typeof ApiPublicHooksCleanupSaudasRoute
@@ -120,6 +128,7 @@ export interface FileRoutesById {
   '/_app/history': typeof AppHistoryRoute
   '/_app/items': typeof AppItemsRoute
   '/_app/saudas': typeof AppSaudasRoute
+  '/_app/whatsapp': typeof AppWhatsappRoute
   '/_app/': typeof AppIndexRoute
   '/api/public/hooks/cleanup-bills': typeof ApiPublicHooksCleanupBillsRoute
   '/api/public/hooks/cleanup-saudas': typeof ApiPublicHooksCleanupSaudasRoute
@@ -136,6 +145,7 @@ export interface FileRouteTypes {
     | '/history'
     | '/items'
     | '/saudas'
+    | '/whatsapp'
     | '/api/public/hooks/cleanup-bills'
     | '/api/public/hooks/cleanup-saudas'
     | '/api/public/hooks/sync-sheets'
@@ -148,6 +158,7 @@ export interface FileRouteTypes {
     | '/history'
     | '/items'
     | '/saudas'
+    | '/whatsapp'
     | '/'
     | '/api/public/hooks/cleanup-bills'
     | '/api/public/hooks/cleanup-saudas'
@@ -162,6 +173,7 @@ export interface FileRouteTypes {
     | '/_app/history'
     | '/_app/items'
     | '/_app/saudas'
+    | '/_app/whatsapp'
     | '/_app/'
     | '/api/public/hooks/cleanup-bills'
     | '/api/public/hooks/cleanup-saudas'
@@ -199,6 +211,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/whatsapp': {
+      id: '/_app/whatsapp'
+      path: '/whatsapp'
+      fullPath: '/whatsapp'
+      preLoaderRoute: typeof AppWhatsappRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/saudas': {
@@ -273,6 +292,7 @@ interface AppRouteChildren {
   AppHistoryRoute: typeof AppHistoryRoute
   AppItemsRoute: typeof AppItemsRoute
   AppSaudasRoute: typeof AppSaudasRoute
+  AppWhatsappRoute: typeof AppWhatsappRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
@@ -282,6 +302,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppHistoryRoute: AppHistoryRoute,
   AppItemsRoute: AppItemsRoute,
   AppSaudasRoute: AppSaudasRoute,
+  AppWhatsappRoute: AppWhatsappRoute,
   AppIndexRoute: AppIndexRoute,
 }
 
