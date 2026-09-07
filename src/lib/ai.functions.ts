@@ -158,14 +158,21 @@ ${catalogList || "(empty)"}`;
       items: items.map((it) => {
         const raw_name = String(it.raw_name ?? "");
         const candidates = rankMatches(raw_name, index, 3).filter((c) => c.score > 12);
+        // model's own pick (1-based catalog line number)
+        const pickNo = Number((it as { match?: unknown }).match);
+        const modelPick =
+          Number.isInteger(pickNo) && pickNo >= 1 && pickNo <= catalog.length
+            ? catalog[pickNo - 1].id
+            : null;
         return {
           raw_name,
           qty: Number(it.qty) || 0,
           rate: Number(it.rate) || 0,
           matched_item_id:
-            aliasMap.get(aliasKey(raw_name)) ?? matchItem(raw_name, index),
+            aliasMap.get(aliasKey(raw_name)) ?? modelPick ?? matchItem(raw_name, index),
           candidates,
         };
       }),
+
     };
   });
