@@ -44,18 +44,21 @@ export const extractBillFromImage = createServerFn({ method: "POST" })
     const mimeType = match[1];
     const base64Data = match[2];
 
-    // Catalog is NOT sent to the model any more — matching is done locally below.
-    // That removes thousands of prompt tokens per scan (the main latency cost)
-    // and makes matching deterministic instead of a guess.
-    const catalog = (data.catalog ?? []).slice(0, 5000);
+    // The model does the matching again (it was much better at it): the whole
+    // catalog goes into the prompt as a numbered list and the model returns the
+    // line number it picked. The local matcher stays as a fallback only.
+    const catalog = (data.catalog ?? []).slice(0, 2000);
+    const catalogList = catalog
+      .map((c, i) => `${i + 1}. ${c.name}${c.section ? ` [${c.section}]` : ""}`)
+      .join("\n");
 
-    const systemPrompt = `You extract structured data from Indian steel/iron trading bills and handwritten enquiry slips. Reply with a single JSON object only. No markdown, no commentary.
+    const systemPrompt = `You extract structured data from Indian steel/iron trading bills and handwritten enquiry slips, AND you match every line to the user's own item catalog. Reply with a single JSON object only. No markdown, no commentary.
 
 FIELDS
 - vendor: party/shop name at top of the slip (string|null)
 - bill_no: bill number if visible (string|null)
 - bill_date: YYYY-MM-DD (Indian slips use DD/MM/YYYY — convert)
-- items: array of {raw_name, qty, rate}
+- items: array of {raw_name, qty, rate, match}
 
 RULES
 1. Read every line in the items section. Do not skip lines.
@@ -67,9 +70,21 @@ RULES
 NOTATION
 - "C 90x45" = Channel 90x45 ; "L 50x50x5" = Angle 50x50x5mm
 - "38x38x11kg" = 38x38 square pipe, 11 kg/pc ; "2x1x15kg" = 2"x1" rectangular pipe, 15 kg/pc
-- "25 OD x 1.00mm" = 25 OD round pipe, 1.00 mm thick ; "(S.L)" = Standard Length, keep it`;
+- "25 OD x 1.00mm" = 25 OD round pipe, 1.00 mm thick ; "(S.L)" = Standard Length, keep it
 
-    const userPrompt = `Extract this ${data.type} bill. Return JSON: {"vendor":..., "bill_no":..., "bill_date":..., "items":[{"raw_name":..., "qty":..., "rate":...}]}`;
+MATCHING (field "match")
+- match = the NUMBER of the catalog line that is the same product, or null if none fits.
+- The category must agree: a channel never matches a pipe, an angle never a flat, CHQ plate never HR plate, OD pipe never square pipe. The [SECTION] tag tells you the category.
+- Sizes must agree. Compare every number: outer size, thickness/gauge in mm, weight per piece in kg, length in feet, SL vs Normal.
+- Handwritten weights are rounded: slip "11 kg" matches a catalog "11.5 KG" row of the same size if no exact-weight row exists. Thickness is never rounded like that.
+- If two catalog rows are equally plausible, pick the one whose numbers match more exactly; if still tied, return null.
+- Never invent a number. Never match only because the wording looks similar.
+
+CATALOG
+${catalogList || "(empty)"}`;
+
+    const userPrompt = `Extract this ${data.type} bill and match each line to the catalog. Return JSON: {"vendor":..., "bill_no":..., "bill_date":..., "items":[{"raw_name":..., "qty":..., "rate":..., "match": <catalog number or null>}]}`;
+
 
 
     // Construct the direct native Google Gemini REST API request payload
