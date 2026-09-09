@@ -103,7 +103,7 @@ async function handleWebhook(payload: any) {
       continue;
     }
 
-    const blocks: string[] = ["*AVAILABLE QTY AND PURCHASE RATE*"];
+    const blocks: string[] = ["*AVAILABLE QTY AND PURCHASE RATE*\n"];
     let itemNumber = 0;
 
     for (const line of lines) {
@@ -132,7 +132,7 @@ async function handleWebhook(payload: any) {
         ? purchases
             .map(
               (p) =>
-                `› ${wa.fmtDate(p.bills.bill_date ?? p.bills.created_at)} – ${
+                `     › ${wa.fmtDate(p.bills.bill_date ?? p.bills.created_at)} – ${
                   p.bills.vendor ?? "-"
                 } – ${wa.fmtRate(p.rate)}`,
             )
@@ -146,6 +146,6 @@ async function handleWebhook(payload: any) {
       );
     }
 
-    await wa.sendWhatsAppText(from, blocks.join("\n\n"));
+    await wa.sendWhatsAppText(from, blocks.join("\n"));
   }
 }
