@@ -172,6 +172,10 @@ export function fmtRate(n: number) {
   return `₹${Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 }
 
+export function formatItemName(name: string) {
+  return name.replace(/(\d)\s*[xX×]\s*(?=\d)/g, "$1×");
+}
+
 export function fmtDate(d: string | null) {
   if (!d) return "-";
   const dt = new Date(d.length <= 10 ? `${d}T00:00:00` : d);
