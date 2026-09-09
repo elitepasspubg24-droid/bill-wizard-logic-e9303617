@@ -103,14 +103,12 @@ async function handleWebhook(payload: any) {
       continue;
     }
 
-    const blocks: string[] = [];
-    let n = 0;
+    const blocks: string[] = ["*AVAILABLE QTY AND PURCHASE RATE*"];
 
     for (const line of lines) {
-      n++;
       const item = line.item_id ? itemMap.get(line.item_id) : null;
       if (!item) {
-        blocks.push(`${n}. ${line.raw_name}\n   Not found in our list.`);
+        blocks.push(`*${wa.formatItemName(line.raw_name)}*\nStock: Not found in our list.`);
         continue;
       }
 
@@ -132,17 +130,17 @@ async function handleWebhook(payload: any) {
         ? purchases
             .map(
               (p) =>
-                `   • ${wa.fmtDate(p.bills.bill_date ?? p.bills.created_at)} · ${
+                `› ${wa.fmtDate(p.bills.bill_date ?? p.bills.created_at)} – ${
                   p.bills.vendor ?? "-"
-                } · ${wa.fmtRate(p.rate)}`,
+                } – ${wa.fmtRate(p.rate)}`,
             )
-            .join("\n")
-        : "   • No purchase history";
+            .join("\n\n")
+        : "› No purchase history";
 
       blocks.push(
-        `${n}. *${item.name}*${item.section_id && sectionMap.get(item.section_id) ? ` (${sectionMap.get(item.section_id)})` : ""}\n   Stock: ${wa.fmtQty(
+        `*${wa.formatItemName(item.name)}*${item.section_id && sectionMap.get(item.section_id) ? ` (${sectionMap.get(item.section_id)})` : ""} | Stock: ${wa.fmtQty(
           item.available_qty,
-        )}\n${hist}`,
+        )}\n\n${hist}`,
       );
     }
 
