@@ -104,11 +104,13 @@ async function handleWebhook(payload: any) {
     }
 
     const blocks: string[] = ["*AVAILABLE QTY AND PURCHASE RATE*"];
+    let itemNumber = 0;
 
     for (const line of lines) {
+      itemNumber++;
       const item = line.item_id ? itemMap.get(line.item_id) : null;
       if (!item) {
-        blocks.push(`*${wa.formatItemName(line.raw_name)}*\nStock: Not found in our list.`);
+        blocks.push(`${itemNumber}. *${wa.formatItemName(line.raw_name)}*\nStock: Not found in our list.`);
         continue;
       }
 
@@ -138,7 +140,7 @@ async function handleWebhook(payload: any) {
         : "› No purchase history";
 
       blocks.push(
-        `*${wa.formatItemName(item.name)}*${item.section_id && sectionMap.get(item.section_id) ? ` (${sectionMap.get(item.section_id)})` : ""} | Stock: ${wa.fmtQty(
+        `${itemNumber}. *${wa.formatItemName(item.name)}*${item.section_id && sectionMap.get(item.section_id) ? ` (${sectionMap.get(item.section_id)})` : ""} | Stock: ${wa.fmtQty(
           item.available_qty,
         )}\n\n${hist}`,
       );
