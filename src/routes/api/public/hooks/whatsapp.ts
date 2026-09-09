@@ -103,7 +103,7 @@ async function handleWebhook(payload: any) {
       continue;
     }
 
-    const blocks: string[] = ["*AVAILABLE QTY AND PURCHASE RATE*\n"];
+    const blocks: string[] = [];
     let itemNumber = 0;
 
     for (const line of lines) {
@@ -142,7 +142,7 @@ async function handleWebhook(payload: any) {
       blocks.push(
         `${itemNumber}. *${wa.formatItemName(item.name)}*${item.section_id && sectionMap.get(item.section_id) ? ` (${sectionMap.get(item.section_id)})` : ""} | Stock: ${wa.fmtQty(
           item.available_qty,
-        )} (${Number(item.gauge_diff ?? 0) >= 0 ? "+" : ""}${wa.fmtQty(Number(item.gauge_diff ?? 0))})\n${hist}`,
+        )}t (${Number(item.gauge_diff ?? 0) >= 0 ? "+" : ""}${wa.fmtQty(Number(item.gauge_diff ?? 0))}rs)\n${hist}`,
       );
     }
 
