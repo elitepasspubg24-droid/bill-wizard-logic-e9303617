@@ -180,5 +180,5 @@ export function fmtDate(d: string | null) {
   if (!d) return "-";
   const dt = new Date(d.length <= 10 ? `${d}T00:00:00` : d);
   if (Number.isNaN(dt.getTime())) return "-";
-  return `${String(dt.getDate()).padStart(2, "0")}/${String(dt.getMonth() + 1).padStart(2, "0")}/${dt.getFullYear()}`;
+  return `${String(dt.getDate()).padStart(2, "0")}/${String(dt.getMonth() + 1).padStart(2, "0")}`;
 }
