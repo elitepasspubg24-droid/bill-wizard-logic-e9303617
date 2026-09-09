@@ -36,6 +36,11 @@ export const extractBillFromImage = createServerFn({ method: "POST" })
       throw new Error("GEMINI_API_KEY missing. Please add it to your Lovable environment variables.");
     }
 
+    // Guard against oversized uploads burning through the free AI quota.
+    if (data.dataUrl.length > 8_000_000) {
+      throw new Error("That file is too large. Please upload a page under about 6 MB.");
+    }
+
     // Safely extract the raw base64 string and mimeType out of the browser's dataUrl
     const match = data.dataUrl.match(/^data:(.*?);base64,(.*)$/);
     if (!match) {
