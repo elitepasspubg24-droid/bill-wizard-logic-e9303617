@@ -132,17 +132,17 @@ async function handleWebhook(payload: any) {
         ? purchases
             .map(
               (p) =>
-                `     › ${wa.fmtDate(p.bills.bill_date ?? p.bills.created_at)} – ${
+                `      › ${wa.fmtDate(p.bills.bill_date ?? p.bills.created_at)} – ${
                   p.bills.vendor ?? "-"
-                } – ${wa.fmtRate(p.rate)}`,
+                } – *${wa.fmtRate(p.rate)}*`,
             )
             .join("\n")
         : "› No purchase history";
 
       blocks.push(
-        `${itemNumber}. *${wa.formatItemName(item.name)}*${item.section_id && sectionMap.get(item.section_id) ? ` (${sectionMap.get(item.section_id)})` : ""} | Stock: ${wa.fmtQty(
+        `${itemNumber}. *${wa.formatItemName(item.name)}*${item.section_id && sectionMap.get(item.section_id) ? ` (${sectionMap.get(item.section_id)})` : ""} | Stock: *${wa.fmtQty(
           item.available_qty,
-        )}t (${Number(item.gauge_diff ?? 0) >= 0 ? "+" : ""}${wa.fmtQty(Number(item.gauge_diff ?? 0))}rs)\n${hist}`,
+        )}t* (${Number(item.gauge_diff ?? 0) >= 0 ? "+" : ""}${wa.fmtQty(Number(item.gauge_diff ?? 0))}rs)\n${hist}`,
       );
     }
 
