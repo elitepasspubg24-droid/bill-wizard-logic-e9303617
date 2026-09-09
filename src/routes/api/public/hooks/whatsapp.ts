@@ -84,7 +84,7 @@ async function handleWebhook(payload: any) {
     if (!text && !media) continue;
 
     const [{ data: items }, { data: sections }, { data: aliases }] = await Promise.all([
-      supabaseAdmin.from("items").select("id, name, section_id, available_qty"),
+      supabaseAdmin.from("items").select("id, name, section_id, available_qty, gauge_diff"),
       supabaseAdmin.from("sections").select("id, name"),
       supabaseAdmin.from("item_aliases").select("alias_key, item_id"),
     ]);
@@ -126,7 +126,7 @@ async function handleWebhook(payload: any) {
           const kb = new Date(b.bills.bill_date ?? b.bills.created_at).getTime();
           return kb - ka;
         })
-        .slice(0, 3);
+        .slice(0, 2);
 
       const hist = purchases.length
         ? purchases
@@ -136,13 +136,13 @@ async function handleWebhook(payload: any) {
                   p.bills.vendor ?? "-"
                 } – ${wa.fmtRate(p.rate)}`,
             )
-            .join("\n\n")
+            .join("\n")
         : "› No purchase history";
 
       blocks.push(
         `${itemNumber}. *${wa.formatItemName(item.name)}*${item.section_id && sectionMap.get(item.section_id) ? ` (${sectionMap.get(item.section_id)})` : ""} | Stock: ${wa.fmtQty(
           item.available_qty,
-        )}\n\n${hist}`,
+        )} (${Number(item.gauge_diff ?? 0) >= 0 ? "+" : ""}${wa.fmtQty(Number(item.gauge_diff ?? 0))})\n${hist}`,
       );
     }
 
