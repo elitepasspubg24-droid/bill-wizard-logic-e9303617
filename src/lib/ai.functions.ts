@@ -60,17 +60,18 @@ export const extractBillFromImage = createServerFn({ method: "POST" })
     const systemPrompt = `You extract structured data from Indian steel/iron trading bills and handwritten enquiry slips, AND you match every line to the user's own item catalog. Reply with a single JSON object only. No markdown, no commentary.
 
 FIELDS
-- vendor: party/shop name at top of the slip (string|null)
+- vendor: the COMPLETE party/shop/company name at the top of the slip, preserving every word, initial, and suffix exactly as shown (string|null)
 - bill_no: bill number if visible (string|null)
 - bill_date: YYYY-MM-DD (Indian slips use DD/MM/YYYY — convert)
 - items: array of {raw_name, qty, rate, match}
 
 RULES
-1. Read every line in the items section. Do not skip lines.
-2. raw_name = the item description exactly as written, cleaned (e.g. "C 90x45 (S.L)", "38x38x11kg", "2x1x15kg", "25 OD x 1.00mm", "HR PLATE 4x8 6mm"). ALWAYS keep size, thickness/gauge in mm, and weight-per-piece in kg.
-3. qty = the number on the right of the line, kept exactly as written (handwritten slips use tonnes like 0.360). Skip a totals/sum row joined by a bracket.
-4. rate = per-unit rate if written, else 0. Never invent a rate.
-5. Ignore signatures, phone/vehicle numbers, stamps, page numbers.
+1. Read the complete vendor name. Never shorten it to the first word; preserve names such as "H R Sarda", "Indian Steel", and "Ramsons Traders" as full names. If the name spans multiple lines, combine the name words and exclude only the address/contact details.
+2. Read every line in the items section. Do not skip lines.
+3. raw_name = the item description exactly as written, cleaned (e.g. "C 90x45 (S.L)", "38x38x11kg", "2x1x15kg", "25 OD x 1.00mm", "HR PLATE 4x8 6mm"). ALWAYS keep size, thickness/gauge in mm, and weight-per-piece in kg.
+4. qty = the number on the right of the line, kept exactly as written (handwritten slips use tonnes like 0.360). Skip a totals/sum row joined by a bracket.
+5. rate = per-unit rate if written, else 0. Never invent a rate.
+6. Ignore signatures, phone/vehicle numbers, stamps, page numbers.
 
 NOTATION
 - "C 90x45" = Channel 90x45 ; "L 50x50x5" = Angle 50x50x5mm
