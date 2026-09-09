@@ -6,7 +6,12 @@ import { createFileRoute } from "@tanstack/react-router";
 export const Route = createFileRoute("/api/public/hooks/cleanup-bills")({
   server: {
     handlers: {
-      POST: async () => {
+      POST: async ({ request }) => {
+        const expected = process.env.CLEANUP_SECRET;
+        if (!expected || request.headers.get("authorization") !== `Bearer ${expected}`) {
+          return new Response("Forbidden", { status: 403 });
+        }
+
         const { supabaseAdmin } = await import(
           "@/integrations/supabase/client.server"
         );
