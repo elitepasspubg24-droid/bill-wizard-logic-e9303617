@@ -113,8 +113,15 @@ export async function readEnquiry(
       .join("\n");
 
     const parts: any[] = [
-      { text: input.text ? `Enquiry list:\n${input.text}` : "Read the item list in this image." },
+      {
+        text: input.media
+          ? `Extract this bill/enquiry document and match each line to the catalog. Return JSON: {"items":[{"raw_name":..., "qty":..., "rate":..., "match": <catalog number or null>}]}${
+              input.text ? `\n\nCaption from sender: ${input.text}` : ""
+            }`
+          : `Extract this enquiry list and match each line to the catalog. Return JSON: {"items":[{"raw_name":..., "qty":..., "rate":..., "match": <catalog number or null>}]}\n\nList:\n${input.text}`,
+      },
     ];
+
     if (input.media) {
       parts.push({ inlineData: { mimeType: input.media.mimeType, data: input.media.base64 } });
     }
