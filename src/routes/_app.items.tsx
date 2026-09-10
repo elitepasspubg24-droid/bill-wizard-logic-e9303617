@@ -213,6 +213,69 @@ function ItemsPage() {
     }
   });
 
+  // --- SUSPENSE INSIGHTS (never counted as purchase or sale) ---
+  const suspenseInsights = useMemo(() => {
+    const rows = suspenseLedger.data || [];
+    const secMap = new Map((sections.data || []).map((s: any) => [s.id, s]));
+    const facMap = new Map((factories.data || []).map((f: any) => [f.id, f]));
+
+    let negToZeroQty = 0, negToZeroCount = 0;
+    let posToZeroQty = 0, posToZeroCount = 0;
+    let manualAddQty = 0, manualReduceQty = 0;
+
+    const byGroup = new Map<
+      string,
+      { factory: string; section: string; negToZero: number; posToZero: number; entries: number }
+    >();
+
+    for (const r of rows as any[]) {
+      const qty = Number(r.qty || 0);
+      const auto = String(r.bills?.vendor || "").includes("AUTO-CLEAR");
+      const sec: any = secMap.get(r.item?.section_id);
+      const fac: any = sec ? facMap.get(sec.factory_id) : null;
+      const key = `${fac?.name || "Unassigned"}|${sec?.name || "Unassigned"}`;
+      if (!byGroup.has(key))
+        byGroup.set(key, {
+          factory: fac?.name || "Unassigned",
+          section: sec?.name || "Unassigned",
+          negToZero: 0,
+          posToZero: 0,
+          entries: 0,
+        });
+      const g = byGroup.get(key)!;
+      g.entries += 1;
+
+      if (qty > 0) {
+        negToZeroQty += qty;
+        negToZeroCount += 1;
+        g.negToZero += qty;
+        if (!auto) manualAddQty += qty;
+      } else if (qty < 0) {
+        posToZeroQty += Math.abs(qty);
+        posToZeroCount += 1;
+        g.posToZero += Math.abs(qty);
+        if (!auto) manualReduceQty += Math.abs(qty);
+      }
+    }
+
+    const groups = Array.from(byGroup.values()).sort(
+      (a, b) => b.negToZero + b.posToZero - (a.negToZero + a.posToZero),
+    );
+
+    return {
+      negToZeroQty,
+      negToZeroCount,
+      posToZeroQty,
+      posToZeroCount,
+      manualAddQty,
+      manualReduceQty,
+      netQty: negToZeroQty - posToZeroQty,
+      totalEntries: rows.length,
+      groups,
+    };
+  }, [suspenseLedger.data, sections.data, factories.data]);
+
+
 
   // Action: Clear all negatives
   const handleClearNegatives = async () => {
