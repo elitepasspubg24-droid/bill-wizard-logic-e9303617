@@ -203,8 +203,8 @@ function ItemsPage() {
         .from("bill_items")
         .select(`
           id, qty, raw_name,
-          item:items(name),
-          bills!inner (id, notes, created_at, type)
+          item:items(name, section_id),
+          bills!inner (id, notes, created_at, type, vendor)
         `)
         .eq("bills.type", "suspense")
         .order("created_at", { ascending: false });
@@ -212,6 +212,70 @@ function ItemsPage() {
       return data || [];
     }
   });
+
+  // --- SUSPENSE INSIGHTS (never counted as purchase or sale) ---
+  const suspenseInsights = useMemo(() => {
+    const rows = suspenseLedger.data || [];
+    const secMap = new Map((sections.data || []).map((s: any) => [s.id, s]));
+    const facMap = new Map((factories.data || []).map((f: any) => [f.id, f]));
+
+    let negToZeroQty = 0, negToZeroCount = 0;
+    let posToZeroQty = 0, posToZeroCount = 0;
+    let manualAddQty = 0, manualReduceQty = 0;
+
+    const byGroup = new Map<
+      string,
+      { factory: string; section: string; negToZero: number; posToZero: number; entries: number }
+    >();
+
+    for (const r of rows as any[]) {
+      const qty = Number(r.qty || 0);
+      const auto = String(r.bills?.vendor || "").includes("AUTO-CLEAR");
+      const sec: any = secMap.get(r.item?.section_id);
+      const fac: any = sec ? facMap.get(sec.factory_id) : null;
+      const key = `${fac?.name || "Unassigned"}|${sec?.name || "Unassigned"}`;
+      if (!byGroup.has(key))
+        byGroup.set(key, {
+          factory: fac?.name || "Unassigned",
+          section: sec?.name || "Unassigned",
+          negToZero: 0,
+          posToZero: 0,
+          entries: 0,
+        });
+      const g = byGroup.get(key)!;
+      g.entries += 1;
+
+      if (qty > 0) {
+        negToZeroQty += qty;
+        negToZeroCount += 1;
+        g.negToZero += qty;
+        if (!auto) manualAddQty += qty;
+      } else if (qty < 0) {
+        posToZeroQty += Math.abs(qty);
+        posToZeroCount += 1;
+        g.posToZero += Math.abs(qty);
+        if (!auto) manualReduceQty += Math.abs(qty);
+      }
+    }
+
+    const groups = Array.from(byGroup.values()).sort(
+      (a, b) => b.negToZero + b.posToZero - (a.negToZero + a.posToZero),
+    );
+
+    return {
+      negToZeroQty,
+      negToZeroCount,
+      posToZeroQty,
+      posToZeroCount,
+      manualAddQty,
+      manualReduceQty,
+      netQty: negToZeroQty - posToZeroQty,
+      totalEntries: rows.length,
+      groups,
+    };
+  }, [suspenseLedger.data, sections.data, factories.data]);
+
+
 
   // Action: Clear all negatives
   const handleClearNegatives = async () => {
@@ -1393,6 +1457,80 @@ function ItemsPage() {
         </TabsContent>
 
         <TabsContent value="suspense" className="space-y-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card>
+              <CardContent className="pt-5">
+                <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Negative stock cleared to 0</p>
+                <p className="text-2xl font-bold text-emerald-600 font-mono">+{suspenseInsights.negToZeroQty.toFixed(3)} MT</p>
+                <p className="text-xs text-muted-foreground">{suspenseInsights.negToZeroCount} corrections upward</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-5">
+                <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Positive stock cleared to 0</p>
+                <p className="text-2xl font-bold text-red-600 font-mono">-{suspenseInsights.posToZeroQty.toFixed(3)} MT</p>
+                <p className="text-xs text-muted-foreground">{suspenseInsights.posToZeroCount} corrections downward</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-5">
+                <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Net suspense effect</p>
+                <p className={`text-2xl font-bold font-mono ${suspenseInsights.netQty >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                  {suspenseInsights.netQty >= 0 ? "+" : ""}{suspenseInsights.netQty.toFixed(3)} MT
+                </p>
+                <p className="text-xs text-muted-foreground">{suspenseInsights.totalEntries} total entries</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-5">
+                <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Manual adjustments</p>
+                <p className="text-2xl font-bold font-mono">
+                  +{suspenseInsights.manualAddQty.toFixed(2)} / -{suspenseInsights.manualReduceQty.toFixed(2)}
+                </p>
+                <p className="text-xs text-muted-foreground">Excluded from purchase &amp; sale totals</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader className="pb-3 border-b bg-muted/20">
+              <CardTitle className="text-sm font-bold uppercase tracking-wider">Insights by Factory / Group</CardTitle>
+              <CardDescription>Corrections split by factory and section — these never affect purchase or sale figures.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <table className="w-full text-sm text-left border-collapse">
+                <thead className="bg-muted/50 border-b text-[10px] uppercase font-bold text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3">Factory</th>
+                    <th className="px-4 py-3">Group / Section</th>
+                    <th className="px-4 py-3 text-right">Negative → 0</th>
+                    <th className="px-4 py-3 text-right">Positive → 0</th>
+                    <th className="px-4 py-3 text-right">Net</th>
+                    <th className="px-4 py-3 text-right">Entries</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {suspenseInsights.groups.map((g) => (
+                    <tr key={`${g.factory}-${g.section}`} className="hover:bg-muted/20">
+                      <td className="px-4 py-2.5 font-semibold">{g.factory}</td>
+                      <td className="px-4 py-2.5">{g.section}</td>
+                      <td className="px-4 py-2.5 text-right font-mono text-emerald-600">+{g.negToZero.toFixed(3)}</td>
+                      <td className="px-4 py-2.5 text-right font-mono text-red-600">-{g.posToZero.toFixed(3)}</td>
+                      <td className="px-4 py-2.5 text-right font-mono font-bold">
+                        {(g.negToZero - g.posToZero).toFixed(3)}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-mono text-muted-foreground">{g.entries}</td>
+                    </tr>
+                  ))}
+                  {suspenseInsights.groups.length === 0 && (
+                    <tr><td colSpan={6} className="p-10 text-center text-muted-foreground italic">No corrections yet.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <Card className="md:col-span-1">
               <CardHeader className="pb-3 border-b bg-muted/20">
