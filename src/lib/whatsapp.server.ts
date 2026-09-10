@@ -60,16 +60,33 @@ export async function fetchMediaDataUrl(mediaId: string) {
   };
 }
 
-const RULES = `You read Indian steel/iron item enquiry lists (typed or handwritten) and match each requested line to the user's own item catalog.
-Reply with a single JSON object only: {"items":[{"raw_name":"...","match": <catalog line number or null>}]}
+// Same rules the Bills page scanner uses, so a photo/PDF sent on WhatsApp is
+// read and matched exactly like a bill uploaded on the website.
+const RULES = `You extract structured data from Indian steel/iron trading bills and handwritten enquiry slips, AND you match every line to the user's own item catalog. Reply with a single JSON object only. No markdown, no commentary.
 
-- raw_name = the item as written, cleaned, keeping size, thickness/gauge in mm and weight-per-piece in kg.
-- Ignore quantities, rates, greetings, phone numbers and signatures.
-- "C 90x45" = Channel 90x45 ; "L 50x50x5" = Angle 50x50x5mm ; "38x38x11kg" = 38x38 square pipe 11 kg/pc ; "25 OD x 1.00mm" = 25 OD round pipe 1.00 mm thick ; "(S.L)" = Standard Length.
+FIELDS
+- items: array of {raw_name, qty, rate, match}
+
+RULES
+1. Read every line in the items section. Do not skip lines.
+2. raw_name = the item description exactly as written, cleaned (e.g. "C 90x45 (S.L)", "38x38x11kg", "2x1x15kg", "25 OD x 1.00mm", "HR PLATE 4x8 6mm"). ALWAYS keep size, thickness/gauge in mm, and weight-per-piece in kg.
+3. qty = the number on the right of the line, kept exactly as written (handwritten slips use tonnes like 0.360). Skip a totals/sum row joined by a bracket. If no quantity is written, use 0.
+4. rate = per-unit rate if written, else 0. Never invent a rate.
+5. Ignore signatures, phone/vehicle numbers, stamps, page numbers, greetings.
+
+NOTATION
+- "C 90x45" = Channel 90x45 ; "L 50x50x5" = Angle 50x50x5mm
+- "38x38x11kg" = 38x38 square pipe, 11 kg/pc ; "2x1x15kg" = 2"x1" rectangular pipe, 15 kg/pc
+- "25 OD x 1.00mm" = 25 OD round pipe, 1.00 mm thick ; "(S.L)" = Standard Length, keep it
+
+MATCHING (field "match")
 - match = the NUMBER of the catalog line that is the same product, or null if none fits.
-- The category must agree (channel never a pipe, CHQ never HR, OD never square). Sizes must agree on every number.
-- Handwritten weights are rounded: "11 kg" may match a catalog "11.5 KG" row of the same size when no exact row exists. Thickness is never rounded.
-- Never invent a number, never match only because wording looks similar.`;
+- The category must agree: a channel never matches a pipe, an angle never a flat, CHQ plate never HR plate, OD pipe never square pipe. The [SECTION] tag tells you the category.
+- Sizes must agree. Compare every number: outer size, thickness/gauge in mm, weight per piece in kg, length in feet, SL vs Normal.
+- Handwritten weights are rounded: slip "11 kg" matches a catalog "11.5 KG" row of the same size if no exact-weight row exists. Thickness is never rounded like that.
+- If two catalog rows are equally plausible, pick the one whose numbers match more exactly; if still tied, return null.
+- Never invent a number. Never match only because the wording looks similar.`;
+
 
 /**
  * Uses Gemini to read the enquiry (text or photo) and match each line to the
