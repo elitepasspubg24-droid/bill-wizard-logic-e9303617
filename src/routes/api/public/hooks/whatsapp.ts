@@ -90,12 +90,23 @@ async function handleWebhook(payload: any) {
     ]);
 
     const sectionMap = new Map((sections ?? []).map((s: any) => [s.id, s.name]));
+    const itemMap = new Map((items ?? []).map((it: any) => [it.id, it]));
+
+    // Category stock command: e.g. "angle stock", "flat stock", "pipe stock"
+    if (text && !media) {
+      const catMatch = text.trim().toLowerCase().match(/^([\w\s/]+?)\s+stock\s*$/);
+      if (catMatch) {
+        const reply = await handleCategoryStock(catMatch[1], items ?? [], sections ?? [], sectionMap, wa);
+        await wa.sendWhatsAppText(from, reply);
+        continue;
+      }
+    }
+
     const catalog = (items ?? []).map((it: any) => ({
       id: it.id,
       name: it.name,
       section: it.section_id ? sectionMap.get(it.section_id) ?? null : null,
     }));
-    const itemMap = new Map((items ?? []).map((it: any) => [it.id, it]));
 
     const lines = await wa.readEnquiry({ text, media }, catalog, aliases ?? []);
     if (!lines.length) {
@@ -148,4 +159,69 @@ async function handleWebhook(payload: any) {
 
     await wa.sendWhatsAppText(from, blocks.join("\n"));
   }
+}
+
+// Maps a user-typed keyword (e.g. "angle", "flat", "pipe") to section names.
+const SECTION_KEYWORD_MAP: Record<string, string[]> = {
+  angle: ["MS ANGLE", "ANGLE"],
+  flat: ["MS FLAT", "FLAT"],
+  channel: ["MS CHANNEL", "CHANNEL"],
+  beam: ["I BEAM", "BEAM", "ISMB"],
+  "sq bar": ["MS SQ BAR", "SQ BAR", "SQUARE BAR"],
+  "round bar": ["MS ROUND BAR", "ROUND BAR", "ROUND"],
+  round: ["MS ROUND BAR", "ROUND BAR", "ROUND"],
+  plate: ["HR PLATE", "CHQ PLATE", "PLATE", "PLATE/SHEET", "SHEET"],
+  "hr plate": ["HR PLATE", "PLATE/SHEET", "SHEET"],
+  "chq plate": ["CHQ PLATE"],
+  chequered: ["CHQ PLATE"],
+  pipe: ["MS PIPE", "HEAVY PIPE", "PIPE"],
+  "heavy pipe": ["HEAVY PIPE"],
+};
+
+async function handleCategoryStock(
+  keyword: string,
+  items: any[],
+  sections: any[],
+  sectionMap: Map<string, string>,
+  wa: any,
+): Promise<string> {
+  const lower = keyword.trim().toLowerCase();
+  const candidates = SECTION_KEYWORD_MAP[lower] ??
+    Object.entries(SECTION_KEYWORD_MAP)
+      .filter(([k]) => k.includes(lower) || lower.includes(k))
+      .flatMap(([, v]) => v);
+
+  if (!candidates.length) {
+    return `Unknown category "${keyword}". Try: angle, flat, channel, beam, pipe, plate, round bar, sq bar, chq plate, heavy pipe.`;
+  }
+
+  const lowerCandidates = candidates.map((c) => c.toLowerCase());
+  const matchedSections = sections.filter((s: any) => {
+    const sn = s.name.trim().toLowerCase();
+    return lowerCandidates.some((c) => sn === c || sn.includes(c));
+  });
+
+  if (!matchedSections.length) {
+    return `No sections found for "${keyword}". Available: ${sections.map((s: any) => s.name).join(", ")}`;
+  }
+
+  const sectionIds = new Set(matchedSections.map((s: any) => s.id));
+  const sectionItems = items
+    .filter((it: any) => sectionIds.has(it.section_id))
+    .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
+
+  if (!sectionItems.length) {
+    return `No items found in ${matchedSections.map((s: any) => s.name).join(", ")}.`;
+  }
+
+  const lines = sectionItems.map((it: any) =>
+    `${wa.formatItemName(it.name)}: ${wa.fmtQty(it.available_qty)}t`,
+  );
+
+  const total = sectionItems.reduce((sum: number, it: any) => sum + Number(it.available_qty || 0), 0);
+
+  const header = `*${matchedSections.map((s: any) => s.name).join(" + ")} — Stock*`;
+  const footer = `Total: *${wa.fmtQty(total)}t* (${sectionItems.length} items)`;
+
+  return [header, ...lines, footer].join("\n");
 }
