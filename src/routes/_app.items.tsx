@@ -1457,6 +1457,80 @@ function ItemsPage() {
         </TabsContent>
 
         <TabsContent value="suspense" className="space-y-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card>
+              <CardContent className="pt-5">
+                <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Negative stock cleared to 0</p>
+                <p className="text-2xl font-bold text-emerald-600 font-mono">+{suspenseInsights.negToZeroQty.toFixed(3)} MT</p>
+                <p className="text-xs text-muted-foreground">{suspenseInsights.negToZeroCount} corrections upward</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-5">
+                <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Positive stock cleared to 0</p>
+                <p className="text-2xl font-bold text-red-600 font-mono">-{suspenseInsights.posToZeroQty.toFixed(3)} MT</p>
+                <p className="text-xs text-muted-foreground">{suspenseInsights.posToZeroCount} corrections downward</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-5">
+                <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Net suspense effect</p>
+                <p className={`text-2xl font-bold font-mono ${suspenseInsights.netQty >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                  {suspenseInsights.netQty >= 0 ? "+" : ""}{suspenseInsights.netQty.toFixed(3)} MT
+                </p>
+                <p className="text-xs text-muted-foreground">{suspenseInsights.totalEntries} total entries</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-5">
+                <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Manual adjustments</p>
+                <p className="text-2xl font-bold font-mono">
+                  +{suspenseInsights.manualAddQty.toFixed(2)} / -{suspenseInsights.manualReduceQty.toFixed(2)}
+                </p>
+                <p className="text-xs text-muted-foreground">Excluded from purchase &amp; sale totals</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader className="pb-3 border-b bg-muted/20">
+              <CardTitle className="text-sm font-bold uppercase tracking-wider">Insights by Factory / Group</CardTitle>
+              <CardDescription>Corrections split by factory and section — these never affect purchase or sale figures.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <table className="w-full text-sm text-left border-collapse">
+                <thead className="bg-muted/50 border-b text-[10px] uppercase font-bold text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3">Factory</th>
+                    <th className="px-4 py-3">Group / Section</th>
+                    <th className="px-4 py-3 text-right">Negative → 0</th>
+                    <th className="px-4 py-3 text-right">Positive → 0</th>
+                    <th className="px-4 py-3 text-right">Net</th>
+                    <th className="px-4 py-3 text-right">Entries</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {suspenseInsights.groups.map((g) => (
+                    <tr key={`${g.factory}-${g.section}`} className="hover:bg-muted/20">
+                      <td className="px-4 py-2.5 font-semibold">{g.factory}</td>
+                      <td className="px-4 py-2.5">{g.section}</td>
+                      <td className="px-4 py-2.5 text-right font-mono text-emerald-600">+{g.negToZero.toFixed(3)}</td>
+                      <td className="px-4 py-2.5 text-right font-mono text-red-600">-{g.posToZero.toFixed(3)}</td>
+                      <td className="px-4 py-2.5 text-right font-mono font-bold">
+                        {(g.negToZero - g.posToZero).toFixed(3)}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-mono text-muted-foreground">{g.entries}</td>
+                    </tr>
+                  ))}
+                  {suspenseInsights.groups.length === 0 && (
+                    <tr><td colSpan={6} className="p-10 text-center text-muted-foreground italic">No corrections yet.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <Card className="md:col-span-1">
               <CardHeader className="pb-3 border-b bg-muted/20">
