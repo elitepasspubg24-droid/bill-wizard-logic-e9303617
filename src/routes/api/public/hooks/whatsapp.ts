@@ -214,14 +214,20 @@ async function handleCategoryStock(
     return `No items found in ${matchedSections.map((s: any) => s.name).join(", ")}.`;
   }
 
-  const lines = sectionItems.map((it: any) =>
-    `${wa.formatItemName(it.name)}: ${wa.fmtQty(it.available_qty)}t`,
-  );
+  const maxNameLen = Math.max(...sectionItems.map((it: any) => wa.formatItemName(it.name).length));
+  const targetLen = Math.min(Math.max(maxNameLen + 2, 20), 36);
+
+  const lines = sectionItems.map((it: any) => {
+    const name = wa.formatItemName(it.name);
+    const qty = `${wa.fmtQty(it.available_qty)}t`;
+    const dots = ".".repeat(Math.max(3, targetLen - name.length - qty.length - 1));
+    return `${name} ${dots} ${qty}`;
+  });
 
   const total = sectionItems.reduce((sum: number, it: any) => sum + Number(it.available_qty || 0), 0);
 
   const header = `*${matchedSections.map((s: any) => s.name).join(" + ")} — Stock*`;
-  const footer = `Total: *${wa.fmtQty(total)}t* (${sectionItems.length} items)`;
+  const footer = `\nTotal: *${wa.fmtQty(total)}t* (${sectionItems.length} items)`;
 
   return [header, ...lines, footer].join("\n");
 }
