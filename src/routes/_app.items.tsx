@@ -203,8 +203,8 @@ function ItemsPage() {
         .from("bill_items")
         .select(`
           id, qty, raw_name,
-          item:items(name),
-          bills!inner (id, notes, created_at, type)
+          item:items(name, section_id),
+          bills!inner (id, notes, created_at, type, vendor)
         `)
         .eq("bills.type", "suspense")
         .order("created_at", { ascending: false });
@@ -212,6 +212,7 @@ function ItemsPage() {
       return data || [];
     }
   });
+
 
   // Action: Clear all negatives
   const handleClearNegatives = async () => {
