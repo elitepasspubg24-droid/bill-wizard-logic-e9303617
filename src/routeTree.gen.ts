@@ -9,27 +9,27 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as AppRouteImport } from './routes/_app'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
-import { Route as AppAnalysisRouteImport } from './routes/_app.analysis'
-import { Route as AppBillsRouteImport } from './routes/_app.bills'
-import { Route as AppHistoryRouteImport } from './routes/_app.history'
-import { Route as AppItemsRouteImport } from './routes/_app.items'
-import { Route as AppSaudasRouteImport } from './routes/_app.saudas'
 import { Route as AppWhatsappRouteImport } from './routes/_app.whatsapp'
-import { Route as ApiPublicHooksCleanupBillsRouteImport } from './routes/api/public/hooks/cleanup-bills'
-import { Route as ApiPublicHooksCleanupSaudasRouteImport } from './routes/api/public/hooks/cleanup-saudas'
-import { Route as ApiPublicHooksSyncSheetsRouteImport } from './routes/api/public/hooks/sync-sheets'
+import { Route as AppSaudasRouteImport } from './routes/_app.saudas'
+import { Route as AppItemsRouteImport } from './routes/_app.items'
+import { Route as AppHistoryRouteImport } from './routes/_app.history'
+import { Route as AppBillsRouteImport } from './routes/_app.bills'
+import { Route as AppAnalysisRouteImport } from './routes/_app.analysis'
 import { Route as ApiPublicHooksWhatsappRouteImport } from './routes/api/public/hooks/whatsapp'
+import { Route as ApiPublicHooksSyncSheetsRouteImport } from './routes/api/public/hooks/sync-sheets'
+import { Route as ApiPublicHooksCleanupSaudasRouteImport } from './routes/api/public/hooks/cleanup-saudas'
+import { Route as ApiPublicHooksCleanupBillsRouteImport } from './routes/api/public/hooks/cleanup-bills'
 
-const AppRoute = AppRouteImport.update({
-  id: '/_app',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppIndexRoute = AppIndexRouteImport.update({
@@ -37,24 +37,9 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
-const AppAnalysisRoute = AppAnalysisRouteImport.update({
-  id: '/analysis',
-  path: '/analysis',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppBillsRoute = AppBillsRouteImport.update({
-  id: '/bills',
-  path: '/bills',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppHistoryRoute = AppHistoryRouteImport.update({
-  id: '/history',
-  path: '/history',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppItemsRoute = AppItemsRouteImport.update({
-  id: '/items',
-  path: '/items',
+const AppWhatsappRoute = AppWhatsappRouteImport.update({
+  id: '/whatsapp',
+  path: '/whatsapp',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSaudasRoute = AppSaudasRouteImport.update({
@@ -62,15 +47,35 @@ const AppSaudasRoute = AppSaudasRouteImport.update({
   path: '/saudas',
   getParentRoute: () => AppRoute,
 } as any)
-const AppWhatsappRoute = AppWhatsappRouteImport.update({
-  id: '/whatsapp',
-  path: '/whatsapp',
+const AppItemsRoute = AppItemsRouteImport.update({
+  id: '/items',
+  path: '/items',
   getParentRoute: () => AppRoute,
 } as any)
-const ApiPublicHooksCleanupBillsRoute =
-  ApiPublicHooksCleanupBillsRouteImport.update({
-    id: '/api/public/hooks/cleanup-bills',
-    path: '/api/public/hooks/cleanup-bills',
+const AppHistoryRoute = AppHistoryRouteImport.update({
+  id: '/history',
+  path: '/history',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBillsRoute = AppBillsRouteImport.update({
+  id: '/bills',
+  path: '/bills',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAnalysisRoute = AppAnalysisRouteImport.update({
+  id: '/analysis',
+  path: '/analysis',
+  getParentRoute: () => AppRoute,
+} as any)
+const ApiPublicHooksWhatsappRoute = ApiPublicHooksWhatsappRouteImport.update({
+  id: '/api/public/hooks/whatsapp',
+  path: '/api/public/hooks/whatsapp',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicHooksSyncSheetsRoute =
+  ApiPublicHooksSyncSheetsRouteImport.update({
+    id: '/api/public/hooks/sync-sheets',
+    path: '/api/public/hooks/sync-sheets',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiPublicHooksCleanupSaudasRoute =
@@ -79,17 +84,12 @@ const ApiPublicHooksCleanupSaudasRoute =
     path: '/api/public/hooks/cleanup-saudas',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiPublicHooksSyncSheetsRoute =
-  ApiPublicHooksSyncSheetsRouteImport.update({
-    id: '/api/public/hooks/sync-sheets',
-    path: '/api/public/hooks/sync-sheets',
+const ApiPublicHooksCleanupBillsRoute =
+  ApiPublicHooksCleanupBillsRouteImport.update({
+    id: '/api/public/hooks/cleanup-bills',
+    path: '/api/public/hooks/cleanup-bills',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiPublicHooksWhatsappRoute = ApiPublicHooksWhatsappRouteImport.update({
-  id: '/api/public/hooks/whatsapp',
-  path: '/api/public/hooks/whatsapp',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -192,18 +192,18 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/_app': {
-      id: '/_app'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof AppRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/auth': {
       id: '/auth'
       path: '/auth'
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/': {
@@ -213,32 +213,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/analysis': {
-      id: '/_app/analysis'
-      path: '/analysis'
-      fullPath: '/analysis'
-      preLoaderRoute: typeof AppAnalysisRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/bills': {
-      id: '/_app/bills'
-      path: '/bills'
-      fullPath: '/bills'
-      preLoaderRoute: typeof AppBillsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/history': {
-      id: '/_app/history'
-      path: '/history'
-      fullPath: '/history'
-      preLoaderRoute: typeof AppHistoryRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/items': {
-      id: '/_app/items'
-      path: '/items'
-      fullPath: '/items'
-      preLoaderRoute: typeof AppItemsRouteImport
+    '/_app/whatsapp': {
+      id: '/_app/whatsapp'
+      path: '/whatsapp'
+      fullPath: '/whatsapp'
+      preLoaderRoute: typeof AppWhatsappRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/saudas': {
@@ -248,25 +227,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSaudasRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/whatsapp': {
-      id: '/_app/whatsapp'
-      path: '/whatsapp'
-      fullPath: '/whatsapp'
-      preLoaderRoute: typeof AppWhatsappRouteImport
+    '/_app/items': {
+      id: '/_app/items'
+      path: '/items'
+      fullPath: '/items'
+      preLoaderRoute: typeof AppItemsRouteImport
       parentRoute: typeof AppRoute
     }
-    '/api/public/hooks/cleanup-bills': {
-      id: '/api/public/hooks/cleanup-bills'
-      path: '/api/public/hooks/cleanup-bills'
-      fullPath: '/api/public/hooks/cleanup-bills'
-      preLoaderRoute: typeof ApiPublicHooksCleanupBillsRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_app/history': {
+      id: '/_app/history'
+      path: '/history'
+      fullPath: '/history'
+      preLoaderRoute: typeof AppHistoryRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/api/public/hooks/cleanup-saudas': {
-      id: '/api/public/hooks/cleanup-saudas'
-      path: '/api/public/hooks/cleanup-saudas'
-      fullPath: '/api/public/hooks/cleanup-saudas'
-      preLoaderRoute: typeof ApiPublicHooksCleanupSaudasRouteImport
+    '/_app/bills': {
+      id: '/_app/bills'
+      path: '/bills'
+      fullPath: '/bills'
+      preLoaderRoute: typeof AppBillsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/analysis': {
+      id: '/_app/analysis'
+      path: '/analysis'
+      fullPath: '/analysis'
+      preLoaderRoute: typeof AppAnalysisRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/api/public/hooks/whatsapp': {
+      id: '/api/public/hooks/whatsapp'
+      path: '/api/public/hooks/whatsapp'
+      fullPath: '/api/public/hooks/whatsapp'
+      preLoaderRoute: typeof ApiPublicHooksWhatsappRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/hooks/sync-sheets': {
@@ -276,11 +269,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksSyncSheetsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/hooks/whatsapp': {
-      id: '/api/public/hooks/whatsapp'
-      path: '/api/public/hooks/whatsapp'
-      fullPath: '/api/public/hooks/whatsapp'
-      preLoaderRoute: typeof ApiPublicHooksWhatsappRouteImport
+    '/api/public/hooks/cleanup-saudas': {
+      id: '/api/public/hooks/cleanup-saudas'
+      path: '/api/public/hooks/cleanup-saudas'
+      fullPath: '/api/public/hooks/cleanup-saudas'
+      preLoaderRoute: typeof ApiPublicHooksCleanupSaudasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hooks/cleanup-bills': {
+      id: '/api/public/hooks/cleanup-bills'
+      path: '/api/public/hooks/cleanup-bills'
+      fullPath: '/api/public/hooks/cleanup-bills'
+      preLoaderRoute: typeof ApiPublicHooksCleanupBillsRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
