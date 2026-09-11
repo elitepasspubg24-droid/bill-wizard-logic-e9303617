@@ -3,6 +3,7 @@ import React, {
   useContext,
   useState,
   useCallback,
+  useEffect,
 } from "react";
 
 interface NoBillContextType {
@@ -29,7 +30,6 @@ type SavedSettings = {
 
 function loadSettings(): SavedSettings {
   const defaults = { enabled: false, defaultPercentage: 10, factoryPercentages: {}, factoryMoreAdders: {} };
-  if (typeof window === "undefined") return defaults;
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
     if (!saved) return defaults;
@@ -45,8 +45,14 @@ function loadSettings(): SavedSettings {
   }
 }
 
+const DEFAULT_SETTINGS: SavedSettings = { enabled: false, defaultPercentage: 10, factoryPercentages: {}, factoryMoreAdders: {} };
+
 export function NoBillProvider({ children }: { children: React.ReactNode }) {
-  const [settings, setSettings] = useState<SavedSettings>(loadSettings);
+  const [settings, setSettings] = useState<SavedSettings>(DEFAULT_SETTINGS);
+
+  useEffect(() => {
+    setSettings(loadSettings());
+  }, []);
 
   const saveSettings = useCallback((next: SavedSettings) => {
     setSettings(next);
