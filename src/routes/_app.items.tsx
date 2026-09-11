@@ -207,7 +207,7 @@ function ItemsPage() {
           bills!inner (id, notes, created_at, type, vendor)
         `)
         .eq("bills.type", "suspense")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false, referencedTable: "bills" });
       if (error) throw error;
       return data || [];
     }
