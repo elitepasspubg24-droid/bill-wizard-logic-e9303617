@@ -206,3 +206,136 @@ export function fmtDate(d: string | null) {
   if (Number.isNaN(dt.getTime())) return "-";
   return `${String(dt.getDate()).padStart(2, "0")}/${String(dt.getMonth() + 1).padStart(2, "0")}`;
 }
+
+// ---------------------------------------------------------------------------
+// Stock report: "angle stock", "pipe stock", "ujjwal stock", "all stock"
+// ---------------------------------------------------------------------------
+
+const STOCK_STOPWORDS = new Set([
+  "stock", "the", "of", "in", "all", "my", "me", "show", "list", "please", "pls",
+  "kitna", "kitni", "hai", "ka", "ki", "and", "total", "current", "report",
+]);
+
+/** True when the message is a stock-list enquiry rather than an item list. */
+export function isStockQuery(text: string) {
+  const t = (text || "").trim();
+  if (!t) return false;
+  if (!/\bstock\b/i.test(t)) return false;
+  // Item lists carry quantities / many lines; a stock enquiry is short and has no digits.
+  if (t.includes("\n")) return false;
+  if (/\d/.test(t)) return false;
+  return t.split(/\s+/).length <= 5;
+}
+
+function stockTokens(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 2 && !STOCK_STOPWORDS.has(w));
+}
+
+export type StockSection = { id: string; name: string; factory_id: string | null; position?: number | null };
+export type StockFactory = { id: string; name: string };
+export type StockItem = {
+  id: string;
+  name: string;
+  section_id: string | null;
+  available_qty: number | null;
+  position?: number | null;
+};
+
+/**
+ * Builds a neat stock list for the requested category/factory.
+ * Returns null when nothing matched the words in the message.
+ */
+export function buildStockReport(
+  text: string,
+  items: StockItem[],
+  sections: StockSection[],
+  factories: StockFactory[],
+): { messages: string[]; label: string } | null {
+  const words = stockTokens(text);
+  const wantsEverything = words.length === 0 || words.every((w) => w === "everything" || w === "full");
+
+  const factoryHit = (f: StockFactory) => {
+    const name = f.name.toLowerCase();
+    return words.some((w) => name.includes(w));
+  };
+  const sectionHit = (s: StockSection) => {
+    const name = s.name.toLowerCase();
+    if (words.some((w) => name.includes(w))) return true;
+    const factory = factories.find((f) => f.id === s.factory_id);
+    return factory ? factoryHit(factory) : false;
+  };
+
+  const chosen = wantsEverything ? sections.slice() : sections.filter(sectionHit);
+  if (!chosen.length) return null;
+
+  chosen.sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0));
+
+  const label = wantsEverything
+    ? "ALL STOCK"
+    : chosen.length === 1
+      ? chosen[0].name.toUpperCase()
+      : `${words.join(" ").toUpperCase()} STOCK`;
+
+  const blocks: string[] = [];
+  let grandTotal = 0;
+  let anyRow = false;
+
+  for (const section of chosen) {
+    const rows = items
+      .filter((i) => i.section_id === section.id && Number(i.available_qty || 0) !== 0)
+      .sort((a, b) => Number(a.position ?? 0) - Number(b.position ?? 0));
+    if (!rows.length) continue;
+
+    anyRow = true;
+    const factory = factories.find((f) => f.id === section.factory_id);
+    const subtotal = rows.reduce((sum, r) => sum + Number(r.available_qty || 0), 0);
+    grandTotal += subtotal;
+
+    const lines = rows.map(
+      (r, i) => `${i + 1}. ${formatItemName(r.name)} — *${fmtQty(Number(r.available_qty || 0))}t*`,
+    );
+
+    const title =
+      chosen.length === 1
+        ? factory
+          ? `_${factory.name}_`
+          : ""
+        : `*${section.name.toUpperCase()}*${factory ? ` (${factory.name})` : ""}`;
+
+    blocks.push(
+      `${title ? `${title}\n` : ""}${lines.join("\n")}${chosen.length === 1 ? "" : `\n_Subtotal: ${fmtQty(subtotal)}t_`}`,
+    );
+
+  }
+
+  if (!anyRow) {
+    return { messages: [`*${label}*\n\nNo stock available right now.`], label };
+  }
+
+  const header = `*${label}*`;
+  const footer = `*TOTAL: ${fmtQty(grandTotal)}t*`;
+
+  // WhatsApp caps a message near 4096 chars — split on section boundaries.
+  const messages: string[] = [];
+  let current = header;
+  for (const block of blocks) {
+    if (current.length + block.length + 2 > 3500) {
+      messages.push(current);
+      current = block;
+    } else {
+      current = `${current}\n\n${block}`;
+    }
+  }
+  if (current.length + footer.length + 2 > 3800) {
+    messages.push(current);
+    messages.push(footer);
+  } else {
+    messages.push(`${current}\n\n${footer}`);
+  }
+
+  return { messages, label };
+}
