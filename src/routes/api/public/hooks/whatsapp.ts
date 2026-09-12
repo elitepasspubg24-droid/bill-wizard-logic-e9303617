@@ -130,11 +130,12 @@ async function handleWebhook(payload: any) {
     const blocks: string[] = [];
     let itemNumber = 0;
 
-    for (const line of lines) {
+for (const line of lines) {
       itemNumber++;
       const item = line.item_id ? itemMap.get(line.item_id) : null;
+      
       if (!item) {
-        blocks.push(`${itemNumber}. *${wa.formatItemName(line.raw_name)}*\nStock: Not found in our list.`);
+        blocks.push(`${itemNumber}. *${wa.formatItemName(line.raw_name)}* | Stock: *Not found*`);
         continue;
       }
 
@@ -150,23 +151,26 @@ async function handleWebhook(payload: any) {
           const kb = new Date(b.bills.bill_date ?? b.bills.created_at).getTime();
           return kb - ka;
         })
-        .slice(0, 2);
+        .slice(0, 2); // Keeps the last 2 purchases to keep the message crisp
 
+      // New crisp template: ↳ Date • Vendor • Qty @ Rate
       const hist = purchases.length
         ? purchases
             .map(
               (p) =>
-                `      › ${wa.fmtDate(p.bills.bill_date ?? p.bills.created_at)} – ${
+                `  ↳ ${wa.fmtDate(p.bills.bill_date ?? p.bills.created_at)} • ${
                   p.bills.vendor ?? "-"
-                } – *${wa.fmtRate(p.rate)}*`,
+                } • ${wa.fmtQty(p.qty)}t @ *${wa.fmtRate(p.rate)}*`,
             )
             .join("\n")
-        : "› No purchase history";
+        : "  ↳ No purchase history";
 
+      const sectionName = item.section_id ? sectionMap.get(item.section_id) : "";
+      const sectionLabel = sectionName ? ` (${sectionName})` : "";
+
+      // Item Header: 1. *Item Name* (Section) | Stock: *XXt*
       blocks.push(
-        `${itemNumber}. *${wa.formatItemName(item.name)}*${item.section_id && sectionMap.get(item.section_id) ? ` (${sectionMap.get(item.section_id)})` : ""} | Stock: *${wa.fmtQty(
-          item.available_qty,
-        )}t* (${Number(item.gauge_diff ?? 0) >= 0 ? "+" : ""}${wa.fmtQty(Number(item.gauge_diff ?? 0))}rs)\n${hist}`,
+        `${itemNumber}. *${wa.formatItemName(item.name)}*${sectionLabel} | Stock: *${wa.fmtQty(item.available_qty)}t*\n${hist}`,
       );
     }
 
