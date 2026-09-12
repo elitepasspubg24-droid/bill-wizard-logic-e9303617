@@ -1,2 +1,0 @@
-ALTER TABLE public.bills DROP CONSTRAINT IF EXISTS bills_type_check;
-ALTER TABLE public.bills ADD CONSTRAINT bills_type_check CHECK (type = ANY (ARRAY['purchase'::text, 'sale'::text, 'suspense'::text]));
