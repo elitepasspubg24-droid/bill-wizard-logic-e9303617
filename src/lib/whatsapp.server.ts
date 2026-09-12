@@ -299,9 +299,17 @@ export function buildStockReport(
       (r, i) => `${i + 1}. ${formatItemName(r.name)} — *${fmtQty(Number(r.available_qty || 0))}t*`,
     );
 
+    const title =
+      chosen.length === 1
+        ? factory
+          ? `_${factory.name}_`
+          : ""
+        : `*${section.name.toUpperCase()}*${factory ? ` (${factory.name})` : ""}`;
+
     blocks.push(
-      `*${section.name.toUpperCase()}*${factory ? ` (${factory.name})` : ""}\n${lines.join("\n")}\n_Subtotal: ${fmtQty(subtotal)}t_`,
+      `${title ? `${title}\n` : ""}${lines.join("\n")}${chosen.length === 1 ? "" : `\n_Subtotal: ${fmtQty(subtotal)}t_`}`,
     );
+
   }
 
   if (!anyRow) {
