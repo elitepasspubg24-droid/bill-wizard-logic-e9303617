@@ -151,24 +151,22 @@ for (const line of lines) {
           const kb = new Date(b.bills.bill_date ?? b.bills.created_at).getTime();
           return kb - ka;
         })
-        .slice(0, 2); // Keeps the last 2 purchases to keep the message crisp
+        .slice(0, 2);
 
-      // New crisp template: ↳ Date • Vendor • Qty @ Rate
       const hist = purchases.length
         ? purchases
-            .map(
-              (p) =>
-                `  ↳ ${wa.fmtDate(p.bills.bill_date ?? p.bills.created_at)} • ${
-                  p.bills.vendor ?? "-"
-                } • ${wa.fmtQty(p.qty)}t @ *${wa.fmtRate(p.rate)}*`,
-            )
+            .map((p) => {
+              // Extract only the first word of the vendor name
+              const vendorFirstName = p.bills.vendor ? p.bills.vendor.trim().split(" ")[0] : "-";
+              
+              return `  ↳ ${wa.fmtDate(p.bills.bill_date ?? p.bills.created_at)} • ${vendorFirstName} • ${wa.fmtQty(p.qty)}t @ *${wa.fmtRate(p.rate)}*`;
+            })
             .join("\n")
         : "  ↳ No purchase history";
 
       const sectionName = item.section_id ? sectionMap.get(item.section_id) : "";
       const sectionLabel = sectionName ? ` (${sectionName})` : "";
 
-      // Item Header: 1. *Item Name* (Section) | Stock: *XXt*
       blocks.push(
         `${itemNumber}. *${wa.formatItemName(item.name)}*${sectionLabel} | Stock: *${wa.fmtQty(item.available_qty)}t*\n${hist}`,
       );
