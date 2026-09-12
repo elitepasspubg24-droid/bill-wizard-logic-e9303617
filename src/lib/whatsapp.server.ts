@@ -258,16 +258,13 @@ export function buildStockReport(
   const words = stockTokens(text);
   const wantsEverything = words.length === 0 || words.every((w) => w === "everything" || w === "full");
 
-  const factoryHit = (f: StockFactory) => {
-    const name = f.name.toLowerCase();
-    return words.some((w) => name.includes(w));
-  };
+  // Match ONLY on the section (group) name — never on factory name, so
+  // "angle stock" returns MS Angle, not everything in an angle factory.
   const sectionHit = (s: StockSection) => {
     const name = s.name.toLowerCase();
-    if (words.some((w) => name.includes(w))) return true;
-    const factory = factories.find((f) => f.id === s.factory_id);
-    return factory ? factoryHit(factory) : false;
+    return words.some((w) => name.includes(w));
   };
+
 
   const chosen = wantsEverything ? sections.slice() : sections.filter(sectionHit);
   if (!chosen.length) return null;
