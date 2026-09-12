@@ -83,11 +83,35 @@ async function handleWebhook(payload: any) {
 
     if (!text && !media) continue;
 
-    const [{ data: items }, { data: sections }, { data: aliases }] = await Promise.all([
-      supabaseAdmin.from("items").select("id, name, section_id, available_qty, gauge_diff"),
-      supabaseAdmin.from("sections").select("id, name"),
-      supabaseAdmin.from("item_aliases").select("alias_key, item_id"),
-    ]);
+    const [{ data: items }, { data: sections }, { data: aliases }, { data: factories }] =
+      await Promise.all([
+        supabaseAdmin
+          .from("items")
+          .select("id, name, section_id, available_qty, gauge_diff, position"),
+        supabaseAdmin.from("sections").select("id, name, factory_id, position"),
+        supabaseAdmin.from("item_aliases").select("alias_key, item_id"),
+        supabaseAdmin.from("factories").select("id, name"),
+      ]);
+
+    // "angle stock", "pipe stock", "ujjwal stock", "all stock" → plain stock list
+    if (text && !media && wa.isStockQuery(text)) {
+      const report = wa.buildStockReport(
+        text,
+        (items ?? []) as any,
+        (sections ?? []) as any,
+        (factories ?? []) as any,
+      );
+      if (report) {
+        for (const message of report.messages) await wa.sendWhatsAppText(from, message);
+      } else {
+        await wa.sendWhatsAppText(
+          from,
+          "I could not find that category or factory. Try: angle stock, pipe stock, flat stock, or all stock.",
+        );
+      }
+      continue;
+    }
+
 
     const sectionMap = new Map((sections ?? []).map((s: any) => [s.id, s.name]));
     const catalog = (items ?? []).map((it: any) => ({
