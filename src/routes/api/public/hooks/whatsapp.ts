@@ -135,7 +135,8 @@ for (const line of lines) {
       const item = line.item_id ? itemMap.get(line.item_id) : null;
       
       if (!item) {
-        blocks.push(`${itemNumber}. *${wa.formatItemName(line.raw_name)}* | Stock: *Not found*`);
+        // Moved Stock to new line, added \n at the end for spacing
+        blocks.push(`${itemNumber}. *${wa.formatItemName(line.raw_name)}*\nStock: *Not found*\n`);
         continue;
       }
 
@@ -167,8 +168,9 @@ for (const line of lines) {
       const sectionName = item.section_id ? sectionMap.get(item.section_id) : "";
       const sectionLabel = sectionName ? ` (${sectionName})` : "";
 
+      // Moved Stock to its own line, and added an extra \n at the very end
       blocks.push(
-        `${itemNumber}. *${wa.formatItemName(item.name)}*${sectionLabel} | Stock: *${wa.fmtQty(item.available_qty)}t*\n${hist}`,
+        `${itemNumber}. *${wa.formatItemName(item.name)}*${sectionLabel}\nStock: *${wa.fmtQty(item.available_qty)}t*\n${hist}\n`,
       );
     }
 
